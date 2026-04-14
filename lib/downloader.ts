@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 const TEMP_DIR = process.env.TEMP_DOWNLOAD_DIR || "/mnt/nvme-ssd/calliope/downloads";
 
@@ -18,6 +19,54 @@ export interface YtSearchResult {
   uploader: string;
 }
 
+export interface YtVideoInfo {
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration: number | null;
+}
+
+function getYtAuthArgs(): { args: string[]; cleanup: () => void } {
+  let tempCookiePath: string | null = null;
+  const cleanup = () => {
+    if (tempCookiePath && fs.existsSync(tempCookiePath)) {
+      try {
+        fs.unlinkSync(tempCookiePath);
+      } catch {
+        // ignore temp cookie cleanup errors
+      }
+    }
+  };
+
+  const cookieFile = process.env.YTDLP_COOKIES_FILE?.trim();
+  if (cookieFile) {
+    if (fs.existsSync(cookieFile)) {
+      try {
+        tempCookiePath = path.join(
+          os.tmpdir(),
+          `calliope-ytcookies-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2)}.txt`
+        );
+        fs.copyFileSync(cookieFile, tempCookiePath);
+        return { args: ["--cookies", tempCookiePath], cleanup };
+      } catch {
+        return { args: ["--cookies", cookieFile], cleanup };
+      }
+    }
+    console.warn(
+      `[downloader] YTDLP_COOKIES_FILE is set but file does not exist: ${cookieFile}`
+    );
+  }
+
+  const cookiesFromBrowser = process.env.YTDLP_COOKIES_FROM_BROWSER?.trim();
+  if (cookiesFromBrowser) {
+    return { args: ["--cookies-from-browser", cookiesFromBrowser], cleanup };
+  }
+
+  return { args: [], cleanup };
+}
+
 /**
  * Search YouTube for a track, returning top N results with metadata.
  */
@@ -26,8 +75,10 @@ export async function ytSearch(
   count = 3
 ): Promise<YtSearchResult[]> {
   return new Promise((resolve, reject) => {
+    const auth = getYtAuthArgs();
     const args = [
       `ytsearch${count}:${query}`,
+      ...auth.args,
       "--dump-json",
       "--flat-playlist",
       "--no-warnings",
@@ -42,6 +93,7 @@ export async function ytSearch(
     proc.stderr.on("data", (d) => (stderr += d.toString()));
 
     proc.on("close", (code) => {
+      auth.cleanup();
       if (code !== 0 && !stdout.trim()) {
         return reject(new Error(`yt-dlp search failed: ${stderr}`));
       }
@@ -106,8 +158,10 @@ export async function ytPlaylistItems(
   playlistId: string
 ): Promise<YtSearchResult[]> {
   return new Promise((resolve, reject) => {
+    const auth = getYtAuthArgs();
     const args = [
       `https://www.youtube.com/playlist?list=${playlistId}`,
+      ...auth.args,
       "--flat-playlist",
       "--dump-json",
       "--no-warnings",
@@ -121,6 +175,7 @@ export async function ytPlaylistItems(
     proc.stderr.on("data", (d) => (stderr += d.toString()));
 
     proc.on("close", (code) => {
+      auth.cleanup();
       if (code !== 0 && !stdout.trim()) {
         return reject(new Error(`yt-dlp playlist failed: ${stderr}`));
       }
@@ -168,6 +223,80 @@ export async function ytPlaylistItems(
   });
 }
 
+export async function ytPlaylistName(playlistId: string): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const auth = getYtAuthArgs();
+    const args = [
+      `https://www.youtube.com/playlist?list=${playlistId}`,
+      ...auth.args,
+      "--ignore-config",
+      "--remote-components", "ejs:github",
+      "--js-runtimes", "node",
+      "--extractor-args", "youtube:player_client=web",
+      "--flat-playlist",
+      "--dump-single-json",
+      "--no-warnings",
+    ];
+
+    const proc = spawn("yt-dlp", args);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      auth.cleanup();
+      if (code !== 0 || !stdout.trim()) {
+        return reject(new Error(`yt-dlp playlist name failed: ${stderr}`));
+      }
+      try {
+        const obj = JSON.parse(stdout);
+        resolve((obj?.title as string) || null);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+export async function ytVideoInfo(url: string): Promise<YtVideoInfo> {
+  return new Promise((resolve, reject) => {
+    const auth = getYtAuthArgs();
+    const args = [
+      url,
+      ...auth.args,
+      "--ignore-config",
+      "--remote-components", "ejs:github",
+      "--js-runtimes", "node",
+      "--extractor-args", "youtube:player_client=web",
+      "--dump-single-json",
+      "--no-warnings",
+      "--no-playlist",
+    ];
+    const proc = spawn("yt-dlp", args);
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      auth.cleanup();
+      if (code !== 0 || !stdout.trim()) {
+        return reject(new Error(`yt-dlp video info failed: ${stderr}`));
+      }
+      try {
+        const info = JSON.parse(stdout);
+        resolve({
+          title: info.track || info.title || null,
+          artist: info.artist || info.creator || info.uploader || info.channel || null,
+          album: info.album || null,
+          duration: typeof info.duration === "number" ? info.duration : null,
+        });
+      } catch (err) {
+        reject(new Error(`Failed parsing yt-dlp video info: ${String(err)}`));
+      }
+    });
+  });
+}
+
 export interface DownloadOptions {
   url: string;
   outputDir: string;
@@ -184,6 +313,7 @@ export interface DownloadOptions {
 export function downloadAudio(opts: DownloadOptions): Promise<string> {
   return new Promise((resolve, reject) => {
     const { url, outputDir, format, quality, filename, onProgress } = opts;
+    const auth = getYtAuthArgs();
 
     fs.mkdirSync(outputDir, { recursive: true });
 
@@ -193,6 +323,12 @@ export function downloadAudio(opts: DownloadOptions): Promise<string> {
 
     const args = [
       url,
+      ...auth.args,
+      "--ignore-config",
+      "--remote-components", "ejs:github",
+      "--js-runtimes", "node",
+      "--extractor-args", "youtube:player_client=web",
+      "-f", "bestaudio/best",
       "-x",
       "--audio-format", format === "flac" ? "flac" : format === "opus" ? "opus" : "mp3",
       "--audio-quality", format === "flac" ? "0" : quality + "k",
@@ -244,6 +380,7 @@ export function downloadAudio(opts: DownloadOptions): Promise<string> {
     proc.stderr.on("data", (d) => (stderr += d.toString()));
 
     proc.on("close", (code) => {
+      auth.cleanup();
       if (code !== 0) {
         return reject(new Error(`yt-dlp download failed (code ${code}): ${stderr}`));
       }

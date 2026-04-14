@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Plus, ListMusic } from "lucide-react";
+import { Plus, ListMusic, RefreshCw } from "lucide-react";
 import { PlaylistCard } from "@/components/playlist-card";
 
 interface Playlist {
@@ -13,12 +13,26 @@ interface Playlist {
   last_checked: string | null;
   new_tracks_count: number;
   track_ids: string | null;
+  tracks?: PlaylistTrack[];
+}
+
+interface PlaylistTrack {
+  source_id: string;
+  track_id: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  status: string;
+  progress: number;
+  error: string | null;
 }
 
 export default function PlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const [scanningAll, setScanningAll] = useState(false);
+  const [scanningIds, setScanningIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
   const fetchPlaylists = useCallback(async () => {
@@ -29,6 +43,8 @@ export default function PlaylistsPage() {
 
   useEffect(() => {
     fetchPlaylists();
+    const timer = setInterval(fetchPlaylists, 15000);
+    return () => clearInterval(timer);
   }, [fetchPlaylists]);
 
   async function handleAdd(e: React.FormEvent) {
@@ -60,24 +76,61 @@ export default function PlaylistsPage() {
   }
 
   async function handleToggle(id: string, enabled: boolean) {
-    await fetch(`/api/playlists/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    });
-    fetchPlaylists();
+    setScanningIds((prev) => ({ ...prev, [id]: true }));
+    try {
+      await fetch(`/api/playlists/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      await fetchPlaylists();
+    } finally {
+      setScanningIds((prev) => ({ ...prev, [id]: false }));
+    }
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/playlists/${id}`, { method: "DELETE" });
-    fetchPlaylists();
+    setScanningIds((prev) => ({ ...prev, [id]: true }));
+    try {
+      await fetch(`/api/playlists/${id}`, { method: "DELETE" });
+      await fetchPlaylists();
+    } finally {
+      setScanningIds((prev) => ({ ...prev, [id]: false }));
+    }
+  }
+
+  async function handleScan(id: string) {
+    setScanningIds((prev) => ({ ...prev, [id]: true }));
+    try {
+      await fetch(`/api/playlists/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scan: true }),
+      });
+      await fetchPlaylists();
+    } finally {
+      setScanningIds((prev) => ({ ...prev, [id]: false }));
+    }
+  }
+
+  async function handleScanAll() {
+    setScanningAll(true);
+    setError(null);
+    try {
+      await fetch("/api/playlists/scan", { method: "POST" });
+      await fetchPlaylists();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to scan playlists");
+    } finally {
+      setScanningAll(false);
+    }
   }
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Monitored Playlists</h1>
       <p className="text-sm text-muted-fg">
-        Playlists are checked every 6 hours for new tracks. New songs are
+        Playlists are checked every hour for new tracks. New songs are
         automatically downloaded with default settings.
       </p>
 
@@ -93,10 +146,20 @@ export default function PlaylistsPage() {
         <button
           type="submit"
           disabled={!url.trim() || adding}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-fg disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-fg transition-transform active:scale-95 disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Monitor
+        </button>
+        <button
+          type="button"
+          onClick={handleScanAll}
+          disabled={scanningAll}
+          className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-fg transition-transform active:scale-95 disabled:opacity-50"
+          title="Scan all playlists now"
+        >
+          <RefreshCw className={`h-4 w-4 ${scanningAll ? "animate-spin" : ""}`} />
+          {scanningAll ? "Scanning..." : "Scan all"}
         </button>
       </form>
 
@@ -117,7 +180,9 @@ export default function PlaylistsPage() {
               key={p.id}
               playlist={p}
               onToggle={handleToggle}
+              onScan={handleScan}
               onDelete={handleDelete}
+              isBusy={!!scanningIds[p.id] || scanningAll}
             />
           ))
         )}

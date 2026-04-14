@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enqueueUrls } from "@/lib/queue";
+import { ensureRuntimeStarted } from "@/lib/runtime";
 
 export async function POST(req: NextRequest) {
   try {
+    ensureRuntimeStarted();
     const body = await req.json();
     const { urls, format, quality } = body;
 

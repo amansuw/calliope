@@ -20,12 +20,13 @@ import {
   findBestMatch,
   downloadAudio,
   ytPlaylistItems,
+  ytVideoInfo,
   DownloadProgress,
 } from "./downloader";
 import { fetchLyrics } from "./lyrics";
 import { embedMetadata } from "./metadata";
 import { buildFinalPath, moveToLibrary } from "./mover";
-import { checkDuplicate } from "./dedup";
+import { checkDuplicate, checkDuplicateBySourceId } from "./dedup";
 import {
   notifyDownloadComplete,
   notifyError,
@@ -245,6 +246,51 @@ async function resolveYoutubeJob(job: JobRow) {
 }
 
 async function processTrack(track: TrackRow, job: JobRow) {
+  // Step 0: Fast duplicate check by source-native ID.
+  const sourceId = job.source === "spotify" ? track.spotify_id : track.youtube_id;
+  const idDedup = checkDuplicateBySourceId(
+    job.source === "spotify" ? "spotify" : "youtube",
+    sourceId
+  );
+  if (idDedup.isDuplicate) {
+    updateTrack(track.id, {
+      status: "skipped",
+      error: idDedup.reason || "Duplicate",
+    });
+    emit("track:update", {
+      trackId: track.id,
+      status: "skipped",
+      reason: idDedup.reason,
+    });
+    return;
+  }
+
+  // Step 0b: Enrich YouTube tracks before metadata-based dedup/pathing.
+  if (job.source === "youtube" && track.youtube_url) {
+    const needsMeta =
+      !track.title || !track.artist || !track.album || !track.duration_s;
+    if (needsMeta) {
+      try {
+        const info = await ytVideoInfo(track.youtube_url);
+        updateTrack(track.id, {
+          title: track.title || info.title || undefined,
+          artist: track.artist || info.artist || undefined,
+          album: track.album || info.album || undefined,
+          duration_s: track.duration_s || info.duration || undefined,
+        });
+        track = {
+          ...track,
+          title: track.title || info.title || null,
+          artist: track.artist || info.artist || null,
+          album: track.album || info.album || null,
+          duration_s: track.duration_s || info.duration || null,
+        };
+      } catch (err) {
+        console.warn("[queue] Failed to enrich YouTube metadata:", err);
+      }
+    }
+  }
+
   // Step 1: Duplicate check
   if (track.artist && track.title) {
     const dedup = checkDuplicate(track.artist, track.title, track.album);

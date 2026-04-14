@@ -4,11 +4,14 @@ import {
   updateMonitoredPlaylist,
   deleteMonitoredPlaylist,
 } from "@/lib/db";
+import { runPlaylistCheckNow } from "@/lib/cron";
+import { ensureRuntimeStarted } from "@/lib/runtime";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  ensureRuntimeStarted();
   const { id } = await params;
   const playlist = getMonitoredPlaylist(id);
   if (!playlist) {
@@ -22,6 +25,7 @@ export async function PATCH(
   if (body.name !== undefined) updates.name = body.name;
 
   updateMonitoredPlaylist(id, updates);
+  void runPlaylistCheckNow(id);
   return NextResponse.json({ ok: true });
 }
 
@@ -29,6 +33,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  ensureRuntimeStarted();
   const { id } = await params;
   deleteMonitoredPlaylist(id);
   return NextResponse.json({ deleted: true });

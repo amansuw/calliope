@@ -151,6 +151,17 @@ export interface MonitoredPlaylistRow {
   created_at: string;
 }
 
+export interface PlaylistTrackStatus {
+  source_id: string;
+  track_id: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  status: string;
+  progress: number;
+  error: string | null;
+}
+
 export function createJob(job: {
   id: string;
   url: string;
@@ -310,6 +321,23 @@ export function findDuplicateTrack(
     .get(artist, title) as TrackRow | undefined;
 }
 
+export function findDuplicateBySourceId(
+  source: "spotify" | "youtube",
+  sourceId: string
+): TrackRow | undefined {
+  if (!sourceId) return undefined;
+  const idColumn = source === "spotify" ? "spotify_id" : "youtube_id";
+  return getDb()
+    .prepare(
+      `SELECT * FROM tracks
+       WHERE ${idColumn} = ?
+       AND status IN ('done', 'downloading', 'converting', 'moving', 'pending', 'skipped')
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+    .get(sourceId) as TrackRow | undefined;
+}
+
 // --- Stats helpers ---
 
 export function getStats() {
@@ -435,4 +463,71 @@ export function getMonitoredPlaylist(
 
 export function deleteMonitoredPlaylist(id: string) {
   getDb().prepare("DELETE FROM monitored_playlists WHERE id = ?").run(id);
+}
+
+export function getPlaylistTrackStatuses(
+  source: string,
+  sourceIds: string[]
+): PlaylistTrackStatus[] {
+  if (sourceIds.length === 0) return [];
+
+  const idColumn = source === "spotify" ? "spotify_id" : "youtube_id";
+  const placeholders = sourceIds.map(() => "?").join(", ");
+  const rows = getDb()
+    .prepare(
+      `SELECT
+         id,
+         ${idColumn} as source_id,
+         title,
+         artist,
+         album,
+         status,
+         progress,
+         error,
+         created_at
+       FROM tracks
+       WHERE ${idColumn} IN (${placeholders})
+       ORDER BY created_at DESC`
+    )
+    .all(...sourceIds) as Array<{
+    id: string;
+    source_id: string | null;
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    status: string;
+    progress: number;
+    error: string | null;
+    created_at: string;
+  }>;
+
+  const bySourceId = new Map<string, PlaylistTrackStatus>();
+  for (const row of rows) {
+    if (!row.source_id || bySourceId.has(row.source_id)) continue;
+    bySourceId.set(row.source_id, {
+      source_id: row.source_id,
+      track_id: row.id,
+      title: row.title,
+      artist: row.artist,
+      album: row.album,
+      status: row.status,
+      progress: row.progress ?? 0,
+      error: row.error,
+    });
+  }
+
+  return sourceIds.map((sourceId) => {
+    return (
+      bySourceId.get(sourceId) || {
+        source_id: sourceId,
+        track_id: null,
+        title: null,
+        artist: null,
+        album: null,
+        status: "not_downloaded",
+        progress: 0,
+        error: null,
+      }
+    );
+  });
 }

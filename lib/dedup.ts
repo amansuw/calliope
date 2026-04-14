@@ -1,4 +1,4 @@
-import { findDuplicateTrack } from "./db";
+import { findDuplicateBySourceId, findDuplicateTrack } from "./db";
 import { existsInLibrary } from "./mover";
 
 export interface DedupResult {
@@ -37,4 +37,17 @@ export function checkDuplicate(
   }
 
   return { isDuplicate: false };
+}
+
+export function checkDuplicateBySourceId(
+  source: "spotify" | "youtube",
+  sourceId?: string | null
+): DedupResult {
+  if (!sourceId) return { isDuplicate: false };
+  const dbMatch = findDuplicateBySourceId(source, sourceId);
+  if (!dbMatch) return { isDuplicate: false };
+  return {
+    isDuplicate: true,
+    reason: `Already in database (job ${dbMatch.job_id}, status: ${dbMatch.status})`,
+  };
 }

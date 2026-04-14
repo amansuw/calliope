@@ -11,9 +11,9 @@ import {
 } from "lucide-react";
 
 const links = [
-  { href: "/", label: "Downloads", icon: Download },
+  { href: "/", label: "Dashboard", icon: BarChart3 },
+  { href: "/downloads", label: "Downloads", icon: Download },
   { href: "/playlists", label: "Playlists", icon: ListMusic },
-  { href: "/stats", label: "Stats", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -24,10 +24,10 @@ export function Nav() {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex fixed left-0 top-0 h-full w-56 flex-col border-r border-border bg-bg z-50">
-        <div className="flex items-center gap-2 px-5 py-5">
+        <Link href="/" className="flex items-center gap-2 px-5 py-5">
           <Music2 className="h-6 w-6 text-primary" />
           <span className="text-lg font-bold">Calliope</span>
-        </div>
+        </Link>
 
         <nav className="flex flex-col gap-1 px-3 mt-2">
           {links.map(({ href, label, icon: Icon }) => {

@@ -30,6 +30,7 @@ yarn-error.log*
 
 # env files
 .env*.local
+.env
 
 # vercel
 .vercel
@@ -41,6 +42,13 @@ next-env.d.ts
 # database
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # downloads
 /downloads/
+
+# auth cookies / secrets
+/cookies/
+cookies.txt
+*.cookies.txt

@@ -250,7 +250,8 @@ async function processTrack(track: TrackRow, job: JobRow) {
   const sourceId = job.source === "spotify" ? track.spotify_id : track.youtube_id;
   const idDedup = checkDuplicateBySourceId(
     job.source === "spotify" ? "spotify" : "youtube",
-    sourceId
+    sourceId,
+    track.id
   );
   if (idDedup.isDuplicate) {
     updateTrack(track.id, {

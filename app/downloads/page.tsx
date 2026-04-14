@@ -44,7 +44,7 @@ export default function DownloadsPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
     null
   );
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -58,9 +58,29 @@ export default function DownloadsPage() {
 
   useEffect(() => {
     fetchJobs();
-    pollRef.current = setInterval(fetchJobs, 2000);
+
+    const scheduleRefresh = () => {
+      if (refreshTimeoutRef.current) return;
+      refreshTimeoutRef.current = setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        fetchJobs();
+      }, 250);
+    };
+
+    const source = new EventSource("/api/events");
+    source.addEventListener("connected", scheduleRefresh);
+    source.addEventListener("job:update", scheduleRefresh);
+    source.addEventListener("track:new", scheduleRefresh);
+    source.addEventListener("track:update", scheduleRefresh);
+    source.addEventListener("track:progress", scheduleRefresh);
+    source.onmessage = scheduleRefresh;
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      source.close();
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
     };
   }, [fetchJobs]);
 

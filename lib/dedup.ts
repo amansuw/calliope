@@ -24,7 +24,7 @@ export function checkDuplicate(
   if (dbMatch) {
     return {
       isDuplicate: true,
-      reason: `Already in database (job ${dbMatch.job_id}, status: ${dbMatch.status})`,
+      reason: "Already in DB",
     };
   }
 
@@ -41,13 +41,14 @@ export function checkDuplicate(
 
 export function checkDuplicateBySourceId(
   source: "spotify" | "youtube",
-  sourceId?: string | null
+  sourceId?: string | null,
+  currentTrackId?: string
 ): DedupResult {
   if (!sourceId) return { isDuplicate: false };
-  const dbMatch = findDuplicateBySourceId(source, sourceId);
+  const dbMatch = findDuplicateBySourceId(source, sourceId, currentTrackId);
   if (!dbMatch) return { isDuplicate: false };
   return {
     isDuplicate: true,
-    reason: `Already in database (job ${dbMatch.job_id}, status: ${dbMatch.status})`,
+    reason: "Already in DB",
   };
 }

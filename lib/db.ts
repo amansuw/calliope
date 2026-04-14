@@ -323,15 +323,28 @@ export function findDuplicateTrack(
 
 export function findDuplicateBySourceId(
   source: "spotify" | "youtube",
-  sourceId: string
+  sourceId: string,
+  excludeTrackId?: string
 ): TrackRow | undefined {
   if (!sourceId) return undefined;
   const idColumn = source === "spotify" ? "spotify_id" : "youtube_id";
+  if (excludeTrackId) {
+    return getDb()
+      .prepare(
+        `SELECT * FROM tracks
+         WHERE ${idColumn} = ?
+         AND id != ?
+         AND status IN ('done', 'downloading', 'converting', 'moving')
+         ORDER BY created_at DESC
+         LIMIT 1`
+      )
+      .get(sourceId, excludeTrackId) as TrackRow | undefined;
+  }
   return getDb()
     .prepare(
       `SELECT * FROM tracks
        WHERE ${idColumn} = ?
-       AND status IN ('done', 'downloading', 'converting', 'moving', 'pending', 'skipped')
+       AND status IN ('done', 'downloading', 'converting', 'moving')
        ORDER BY created_at DESC
        LIMIT 1`
     )

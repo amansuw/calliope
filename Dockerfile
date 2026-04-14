@@ -30,10 +30,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Rebuild better-sqlite3 for musl/Alpine
-RUN cd /app && npm rebuild better-sqlite3 && \
-    apk del make g++
-
 USER nextjs
 EXPOSE 7200
 ENV PORT=7200

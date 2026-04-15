@@ -8,12 +8,14 @@ import {
   BarChart3,
   Settings,
   Music2,
+  HardDrive,
 } from "lucide-react";
 
 const links = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/downloads", label: "Downloads", icon: Download },
   { href: "/playlists", label: "Playlists", icon: ListMusic },
+  { href: "/library", label: "Library", icon: HardDrive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

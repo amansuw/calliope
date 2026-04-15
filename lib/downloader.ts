@@ -5,6 +5,14 @@ import os from "os";
 
 const TEMP_DIR = process.env.TEMP_DOWNLOAD_DIR || "/mnt/nvme-ssd/calliope/downloads";
 
+const PLAYLIST_CACHE_TTL = 5 * 60 * 1000;
+interface CacheEntry<T> {
+  data: T;
+  expires: number;
+}
+const playlistItemsCache = new Map<string, CacheEntry<YtSearchResult[]>>();
+const playlistNameCache = new Map<string, CacheEntry<string>>();
+
 export interface DownloadProgress {
   percent: number;
   speed: string;
@@ -157,6 +165,11 @@ export async function findBestMatch(
 export async function ytPlaylistItems(
   playlistId: string
 ): Promise<YtSearchResult[]> {
+  const cached = playlistItemsCache.get(playlistId);
+  if (cached && cached.expires > Date.now()) {
+    return cached.data;
+  }
+
   return new Promise((resolve, reject) => {
     const auth = getYtAuthArgs();
     const args = [
@@ -218,12 +231,21 @@ export async function ytPlaylistItems(
         }
       }
 
+      playlistItemsCache.set(playlistId, {
+        data: items,
+        expires: Date.now() + PLAYLIST_CACHE_TTL,
+      });
       resolve(items);
     });
   });
 }
 
 export async function ytPlaylistName(playlistId: string): Promise<string | null> {
+  const cached = playlistNameCache.get(playlistId);
+  if (cached && cached.expires > Date.now()) {
+    return cached.data;
+  }
+
   return new Promise((resolve, reject) => {
     const auth = getYtAuthArgs();
     const args = [
@@ -250,7 +272,14 @@ export async function ytPlaylistName(playlistId: string): Promise<string | null>
       }
       try {
         const obj = JSON.parse(stdout);
-        resolve((obj?.title as string) || null);
+        const name = (obj?.title as string) || null;
+        if (name) {
+          playlistNameCache.set(playlistId, {
+            data: name,
+            expires: Date.now() + PLAYLIST_CACHE_TTL,
+          });
+        }
+        resolve(name);
       } catch {
         resolve(null);
       }

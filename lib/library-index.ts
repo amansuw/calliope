@@ -89,25 +89,17 @@ export async function scanLibrary(force = false): Promise<{ scanned: number; err
 
   await scanDir(MUSIC_DIR);
 
-  console.log(`[library] Scanned ${scanned} tracks, ${errors} errors`);
-
   const allTracked = db.prepare("SELECT file_path FROM library_tracks").all() as { file_path: string }[];
-  console.log(`[library] DB has ${allTracked.length} tracked files`);
 
   let removed = 0;
   for (const row of allTracked) {
-    const exists = fs.existsSync(row.file_path);
-    if (!exists) {
-      console.log(`[library] Removing missing: ${row.file_path}`);
+    if (!fs.existsSync(row.file_path)) {
       db.prepare("DELETE FROM library_tracks WHERE file_path = ?").run(row.file_path);
       removed++;
     }
   }
-  if (removed > 0) {
-    console.log(`[library] Removed ${removed} tracks that no longer exist`);
-  }
 
-  console.log(`[library] Scan complete: ${scanned} tracks indexed, ${errors} errors`);
+  console.log(`[library] Scan complete: ${scanned} tracks, ${removed} removed`);
   return { scanned, errors };
 }
 

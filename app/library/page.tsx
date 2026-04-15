@@ -66,7 +66,9 @@ export default function LibraryPage() {
 
   const handleScan = async () => {
     setScanning(true);
-    await fetch("/api/library/scan", { method: "POST" });
+    const res = await fetch("/api/library/scan", { method: "POST" });
+    const data = await res.json();
+    console.log("Scan result:", data);
     await fetchStats();
     await fetchTracks(search);
     setScanning(false);

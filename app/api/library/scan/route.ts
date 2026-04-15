@@ -5,9 +5,11 @@ import { getDb } from "@/lib/db";
 export async function POST(req: NextRequest) {
   try {
     const result = await forceLibraryScan();
+    console.log("[api] Force scan result:", result);
     return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    console.error("[api] Force scan error:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

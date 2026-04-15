@@ -30,6 +30,8 @@ in SQLite with a Next.js UI.
 - `app/page.tsx` - Dashboard (home)
 - `app/downloads/page.tsx` - download queue/history
 - `app/playlists/page.tsx` - monitored playlists
+- `app/library/page.tsx` - library browser
+- `app/stats/page.tsx` - download statistics
 - `app/settings/page.tsx` - settings and integration status
 - `app/api/*` - API routes
 - `components/` - client UI components
@@ -40,6 +42,12 @@ in SQLite with a Next.js UI.
 - `lib/runtime.ts` - one-time background startup bootstrap
 - `lib/metadata.ts` - FFmpeg metadata embedding
 - `lib/mover.ts` - final library path generation and file move
+- `lib/dedup.ts` - duplicate detection logic
+- `lib/spotify.ts` - Spotify metadata fetching
+- `lib/lyrics.ts` - lyrics fetching from LRCLIB
+- `lib/discord.ts` - Discord notifications
+- `lib/navidrome.ts` - Navidrome rescan integration
+- `lib/library-index.ts` - library scanning and indexing
 - `docker-compose.yml` / `Dockerfile` - containerized deployment
 
 ## Requirements
@@ -67,7 +75,20 @@ Docker image installs `yt-dlp` and `ffmpeg` for you. You still need:
 
 ## Quick Start (Docker)
 
-Run: `docker compose up -d --build`
+1. Build and start: `docker compose up -d --build`
+2. Open `http://localhost:7200`
+
+### Rebuilding
+
+After code changes, rebuild the container:
+
+```bash
+docker compose down
+# Fix ownership if needed (replace with your data path)
+sudo chown -R 1000:1000 /path/to/data
+docker compose build --no-cache
+docker compose up -d
+```
 
 Default port mapping is `7200:7200`.
 
@@ -135,6 +156,7 @@ For each track:
 - `PATCH /api/playlists/:id` - update playlist flags and trigger immediate recheck
 - `DELETE /api/playlists/:id` - remove monitored playlist
 - `POST /api/playlists/scan` - run immediate scan across all playlists
+- `POST /api/library/scan` - scan library directory and update index
 - `GET /api/events` - Server-Sent Events stream for queue events
 
 ## Data Model (SQLite)
@@ -156,7 +178,7 @@ Default settings seed:
 - Queue processing is in-process; if the app process restarts, in-memory queue
   state is lost (DB history remains).
 - Playlist monitor runs hourly via `lib/cron.ts` and starts automatically at runtime
-  when API routes initialize background services.
+  when API routes initialize background services. It runs immediately on startup, then every hour.
 - Playlists page includes per-playlist **Scan now** and global **Scan all** controls.
 - Keep secrets out of version control. Use environment management practices and
   do not commit real tokens/passwords.

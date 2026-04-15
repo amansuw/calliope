@@ -39,15 +39,16 @@ export async function scanLibraryFile(filePath: string): Promise<LibraryTrack | 
 export async function scanLibrary(force = false): Promise<{ scanned: number; errors: number }> {
   const db = getDb();
 
-  if (!force) {
-    const count = (db.prepare("SELECT COUNT(*) as c FROM library_tracks").get() as { c: number }).c;
-    if (count > 0) {
-      console.log(`[library] Already indexed ${count} tracks, skipping scan`);
-      return { scanned: count, errors: 0 };
-    }
+  if (force) {
+    db.prepare("DELETE FROM library_tracks").run();
   }
 
   console.log(`[library] Starting full scan of ${MUSIC_DIR}`);
+
+  if (!fs.existsSync(MUSIC_DIR)) {
+    console.warn(`[library] Directory does not exist: ${MUSIC_DIR}`);
+    return { scanned: 0, errors: 0 };
+  }
 
   let scanned = 0;
   let errors = 0;
@@ -87,6 +88,25 @@ export async function scanLibrary(force = false): Promise<{ scanned: number; err
   };
 
   await scanDir(MUSIC_DIR);
+
+  console.log(`[library] Scanned ${scanned} tracks, ${errors} errors`);
+
+  const allTracked = db.prepare("SELECT file_path FROM library_tracks").all() as { file_path: string }[];
+  console.log(`[library] DB has ${allTracked.length} tracked files`);
+
+  let removed = 0;
+  for (const row of allTracked) {
+    const exists = fs.existsSync(row.file_path);
+    if (!exists) {
+      console.log(`[library] Removing missing: ${row.file_path}`);
+      db.prepare("DELETE FROM library_tracks WHERE file_path = ?").run(row.file_path);
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    console.log(`[library] Removed ${removed} tracks that no longer exist`);
+  }
+
   console.log(`[library] Scan complete: ${scanned} tracks indexed, ${errors} errors`);
   return { scanned, errors };
 }

@@ -5,6 +5,10 @@ import { Nav } from "@/components/nav";
 export const metadata: Metadata = {
   title: "Calliope",
   description: "Music downloader — Spotify & YouTube Music",
+  icons: {
+    icon: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

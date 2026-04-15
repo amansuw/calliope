@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Music, FolderOpen, RefreshCw } from "lucide-react";
+import { Search, Music, FolderOpen, RefreshCw, Disc3, Clock, HardDrive } from "lucide-react";
 
 interface LibraryTrack {
   id: string;
@@ -74,118 +74,143 @@ export default function LibraryPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <FolderOpen className="w-6 h-6" />
-          Music Library
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8 animate-slide-up">
+        <h1 className="text-2xl font-bold flex items-center gap-3">
+          <div className="relative">
+            <div className="absolute inset-0 bg-primary/30 blur-xl" />
+            <FolderOpen className="w-7 h-7 text-primary relative" />
+          </div>
+          <span className="gradient-text">Music Library</span>
         </h1>
         <button
           onClick={handleScan}
           disabled={scanning}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          className="relative group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary to-purple-500 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 btn-shine"
         >
-          <RefreshCw className={`w-4 h-4 ${scanning ? "animate-spin" : ""}`} />
-          {scanning ? "Scanning..." : "Rescan Library"}
+          <RefreshCw className={`w-4 h-4 ${scanning ? "animate-spin-slow" : ""}`} />
+          {scanning ? "Scanning..." : "Rescan"}
+          <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
         </button>
       </div>
 
+      {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-            <div className="text-2xl font-bold">{stats.trackCount}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Tracks</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="relative group bg-card border border-border rounded-2xl p-5 card-hover gradient-border">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-all" />
+            <div className="flex items-center gap-3 mb-2">
+              <Disc3 className="w-5 h-5 text-primary" />
+              <span className="text-sm text-muted-fg">Total Tracks</span>
+            </div>
+            <div className="text-3xl font-bold gradient-text">{stats.trackCount.toLocaleString()}</div>
           </div>
-          <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-            <div className="text-2xl font-bold">{formatSize(stats.totalSize)}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Total Size</div>
+          
+          <div className="relative group bg-card border border-border rounded-2xl p-5 card-hover gradient-border">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-success/10 rounded-full blur-2xl group-hover:bg-success/20 transition-all" />
+            <div className="flex items-center gap-3 mb-2">
+              <HardDrive className="w-5 h-5 text-success" />
+              <span className="text-sm text-muted-fg">Library Size</span>
+            </div>
+            <div className="text-3xl font-bold text-fg">{formatSize(stats.totalSize)}</div>
           </div>
-          <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-            <div className="text-2xl font-bold">
+          
+          <div className="relative group bg-card border border-border rounded-2xl p-5 card-hover gradient-border">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-warning/10 rounded-full blur-2xl group-hover:bg-warning/20 transition-all" />
+            <div className="flex items-center gap-3 mb-2">
+              <Clock className="w-5 h-5 text-warning" />
+              <span className="text-sm text-muted-fg">Last Scanned</span>
+            </div>
+            <div className="text-xl font-semibold text-fg">
               {stats.lastScanned ? new Date(stats.lastScanned).toLocaleDateString() : "Never"}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Last Scanned</div>
           </div>
         </div>
       )}
 
-      <form onSubmit={handleSearch} className="flex gap-2 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+      {/* Search */}
+      <form onSubmit={handleSearch} className="mb-6 animate-slide-up delay-150">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-fg" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by title, artist, or album..."
-            className="w-full pl-10 pr-4 py-2 border rounded-lg"
+            className="w-full pl-12 pr-4 py-3 bg-card border border-border rounded-xl text-fg placeholder:text-muted-fg focus:outline-none focus:border-primary input-glow transition-all"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                fetchTracks();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-fg hover:text-fg transition-colors"
+            >
+              ×
+            </button>
+          )}
         </div>
-        <button type="submit" className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-          Search
-        </button>
-        {search && (
-          <button
-            type="button"
-            onClick={() => {
-              setSearch("");
-              fetchTracks();
-            }}
-            className="px-4 py-2 text-gray-600 hover:underline"
-          >
-            Clear
-          </button>
-        )}
       </form>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="text-left p-3">Title</th>
-              <th className="text-left p-3">Artist</th>
-              <th className="text-left p-3">Album</th>
-              <th className="text-left p-3">Duration</th>
-              <th className="text-left p-3">Path</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-gray-500">
-                  Loading...
-                </td>
+      {/* Table */}
+      <div className="bg-card border border-border rounded-2xl overflow-hidden animate-slide-up delay-225">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left p-4 text-sm font-medium text-muted-fg">Title</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-fg">Artist</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-fg">Album</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-fg w-24">Duration</th>
+                <th className="text-left p-4 text-sm font-medium text-muted-fg">Path</th>
               </tr>
-            ) : tracks.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-gray-500">
-                  No tracks found
-                </td>
-              </tr>
-            ) : (
-              tracks.map((track) => (
-                <tr key={track.id} className="border-t hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="p-3 font-medium">
-                    <div className="flex items-center gap-2">
-                      <Music className="w-4 h-4 text-gray-400" />
-                      {track.title || "Unknown"}
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center">
+                    <div className="flex items-center justify-center gap-2 text-muted-fg">
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                      Loading...
                     </div>
                   </td>
-                  <td className="p-3 text-gray-600 dark:text-gray-400">
-                    {track.artist || "Unknown"}
-                  </td>
-                  <td className="p-3 text-gray-600 dark:text-gray-400">
-                    {track.album || "-"}
-                  </td>
-                  <td className="p-3 text-gray-600 dark:text-gray-400">
-                    {formatDuration(track.duration_s)}
-                  </td>
-                  <td className="p-3 text-xs text-gray-500 font-mono truncate max-w-xs" title={track.file_path}>
-                    {track.file_path.split("/").slice(-3).join("/")}
+                </tr>
+              ) : tracks.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-muted-fg">
+                    <Music className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                    <p>No tracks found</p>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                tracks.map((track, idx) => (
+                  <tr
+                    key={track.id}
+                    className="border-b border-border/50 hover:bg-primary/5 transition-colors animate-fade-in"
+                    style={{ animationDelay: `${idx * 30}ms` }}
+                  >
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Music className="w-4 h-4 text-primary" />
+                        </div>
+                        <span className="font-medium">{track.title || "Unknown"}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-muted-fg">{track.artist || "Unknown"}</td>
+                    <td className="p-4 text-muted-fg">{track.album || "-"}</td>
+                    <td className="p-4 text-muted-fg font-mono">{formatDuration(track.duration_s)}</td>
+                    <td className="p-4 text-xs text-muted-fg font-mono truncate max-w-xs" title={track.file_path}>
+                      {track.file_path.split("/").slice(-3).join("/")}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

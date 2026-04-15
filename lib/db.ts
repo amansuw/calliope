@@ -75,6 +75,19 @@ function initSchema(db: Database.Database) {
       enabled INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS library_tracks (
+      id TEXT PRIMARY KEY,
+      file_path TEXT UNIQUE NOT NULL,
+      title TEXT,
+      artist TEXT,
+      album TEXT,
+      duration_s INTEGER,
+      file_size INTEGER,
+      scanned_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_library_artist_title ON library_tracks(LOWER(artist), LOWER(title));
   `);
 
   // Seed default settings

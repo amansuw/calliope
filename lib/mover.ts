@@ -63,19 +63,3 @@ export function moveToLibrary(tempPath: string, finalPath: string): string {
 
   return dest;
 }
-
-/**
- * Check if a file with matching artist/title already exists in the library.
- */
-export function existsInLibrary(
-  artist: string,
-  title: string,
-  album?: string | null
-): boolean {
-  const exts = [".mp3", ".opus", ".flac"];
-  for (const ext of exts) {
-    const p = buildFinalPath(artist, title, album, ext);
-    if (fs.existsSync(p)) return true;
-  }
-  return false;
-}

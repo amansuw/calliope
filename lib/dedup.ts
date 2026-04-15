@@ -1,5 +1,5 @@
 import { findDuplicateBySourceId, findDuplicateTrack } from "./db";
-import { existsInLibrary } from "./mover";
+import { isInLibrary } from "./library-index";
 
 export interface DedupResult {
   isDuplicate: boolean;
@@ -8,7 +8,7 @@ export interface DedupResult {
 
 /**
  * Check if a track is a duplicate by checking both the database
- * and the filesystem (music library).
+ * and the music library (by reading actual file metadata).
  */
 export function checkDuplicate(
   artist: string,
@@ -28,11 +28,11 @@ export function checkDuplicate(
     };
   }
 
-  // Check filesystem
-  if (existsInLibrary(artist, title, album)) {
+  // Check music library by reading metadata from actual files
+  if (isInLibrary(artist, title)) {
     return {
       isDuplicate: true,
-      reason: "File already exists in music library",
+      reason: "Already in music library",
     };
   }
 

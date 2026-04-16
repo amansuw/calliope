@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
-
-const MUSIC_DIR = process.env.MUSIC_LIBRARY_DIR || "/mnt/wd-hdd/Media/Music";
+import { getMusicDir } from "./config";
 
 /**
  * Sanitize a string for safe use as a filesystem path component.
@@ -32,10 +31,10 @@ export function buildFinalPath(
 
   if (album && album.trim()) {
     const safeAlbum = sanitize(album);
-    return path.join(MUSIC_DIR, safeArtist, safeAlbum, `${safeTitle}${safeExt}`);
+    return path.join(getMusicDir(), safeArtist, safeAlbum, `${safeTitle}${safeExt}`);
   }
 
-  return path.join(MUSIC_DIR, safeArtist, `${safeTitle}${safeExt}`);
+  return path.join(getMusicDir(), safeArtist, `${safeTitle}${safeExt}`);
 }
 
 /**

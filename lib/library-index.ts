@@ -3,8 +3,7 @@ import fs from "fs";
 import path from "path";
 import { v4 as uuid } from "uuid";
 import { getDb } from "./db";
-
-const MUSIC_DIR = process.env.MUSIC_LIBRARY_DIR || "/mnt/wd-hdd/Media/Music";
+import { getMusicDir } from "./config";
 const AUDIO_EXTENSIONS = [".mp3", ".opus", ".flac", ".m4a", ".ogg", ".wav", ".aiff"];
 
 interface LibraryTrack {
@@ -43,10 +42,10 @@ export async function scanLibrary(force = false): Promise<{ scanned: number; err
     db.prepare("DELETE FROM library_tracks").run();
   }
 
-  console.log(`[library] Starting full scan of ${MUSIC_DIR}`);
+  console.log(`[library] Starting full scan of ${getMusicDir()}`);
 
-  if (!fs.existsSync(MUSIC_DIR)) {
-    console.warn(`[library] Directory does not exist: ${MUSIC_DIR}`);
+  if (!fs.existsSync(getMusicDir())) {
+    console.warn(`[library] Directory does not exist: ${getMusicDir()}`);
     return { scanned: 0, errors: 0 };
   }
 
@@ -87,7 +86,7 @@ export async function scanLibrary(force = false): Promise<{ scanned: number; err
     }
   };
 
-  await scanDir(MUSIC_DIR);
+  await scanDir(getMusicDir());
 
   const allTracked = db.prepare("SELECT file_path FROM library_tracks").all() as { file_path: string }[];
 

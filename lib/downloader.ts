@@ -2,8 +2,7 @@ import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
-
-const TEMP_DIR = process.env.TEMP_DOWNLOAD_DIR || "/mnt/nvme-ssd/calliope/downloads";
+import { getTempDir } from "./config";
 
 const PLAYLIST_CACHE_TTL = 5 * 60 * 1000;
 interface CacheEntry<T> {

@@ -69,14 +69,27 @@ Docker image installs `yt-dlp` and `ffmpeg` for you. You still need:
 ## Quick Start (Local)
 
 1. Install dependencies: `npm ci`
-2. Configure environment (create/update `.env`)
-3. Start dev server: `npm run dev`
-4. Open `http://localhost:7200`
+2. Start dev server: `npm run dev`
+3. Open `http://localhost:7200` - you'll be guided through the setup wizard
+4. Configure your paths and optional integrations
 
 ## Quick Start (Docker)
 
-1. Build and start: `docker compose up -d --build`
-2. Open `http://localhost:7200`
+1. Copy `docker-compose.example.yml` to `docker-compose.yml`
+2. Update volume paths for your system
+3. Build and start: `docker compose up -d --build`
+4. Open `http://localhost:7200` - you'll be guided through the setup wizard
+
+## First-Run Setup
+
+On first launch, you'll be redirected to the Setup wizard where you can:
+
+- **Configure storage paths** - temp downloads and music library directories
+- **Validate paths** - ensure directories exist and are writable
+- **Optional integrations** - Discord notifications and Navidrome rescan
+
+Paths are stored in the database; integration secrets are saved to `.env`.
+Existing users can reconfigure anytime via Settings page.
 
 ### Rebuilding
 

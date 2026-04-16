@@ -32,9 +32,7 @@ import {
   notifyError,
 } from "./discord";
 import { triggerNavidromeScan } from "./navidrome";
-
-const TEMP_DIR =
-  process.env.TEMP_DOWNLOAD_DIR || "/mnt/nvme-ssd/calliope/downloads";
+import { getTempDir } from "./config";
 
 // SSE event emitter — simple pub/sub for progress updates
 type Listener = (event: string, data: unknown) => void;
@@ -339,7 +337,7 @@ async function processTrack(track: TrackRow, job: JobRow) {
   updateTrack(track.id, { status: "downloading", progress: 0 });
   emit("track:update", { trackId: track.id, status: "downloading", progress: 0 });
 
-  const outputDir = path.join(TEMP_DIR, job.id);
+  const outputDir = path.join(getTempDir(), job.id);
   const downloadedFile = await downloadAudio({
     url: youtubeUrl,
     outputDir,
@@ -438,7 +436,7 @@ async function processTrack(track: TrackRow, job: JobRow) {
 
   // Cleanup temp directory if empty
   try {
-    const dir = path.join(TEMP_DIR, job.id);
+    const dir = path.join(getTempDir(), job.id);
     if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
       fs.rmdirSync(dir);
     }

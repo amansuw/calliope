@@ -7,6 +7,7 @@ import {
   CheckCircle,
   XCircle,
   FolderOpen,
+  AlertCircle,
 } from "lucide-react";
 
 interface Settings {
@@ -16,15 +17,22 @@ interface Settings {
   discord_configured: boolean;
   navidrome_configured: boolean;
   temp_dir: string;
+  temp_dir_verified: boolean;
   music_dir: string;
+  music_dir_verified: boolean;
 }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [format, setFormat] = useState("mp3");
   const [quality, setQuality] = useState("320");
+  const [tempDir, setTempDir] = useState("");
+  const [musicDir, setMusicDir] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pathSaving, setPathSaving] = useState(false);
+  const [pathSaved, setPathSaved] = useState(false);
+  const [pathError, setPathError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -33,6 +41,8 @@ export default function SettingsPage() {
         setSettings(data);
         setFormat(data.default_format);
         setQuality(data.default_quality);
+        setTempDir(data.temp_dir);
+        setMusicDir(data.music_dir);
       })
       .catch(() => {});
   }, []);
@@ -53,6 +63,43 @@ export default function SettingsPage() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleSavePaths() {
+    setPathSaving(true);
+    setPathSaved(false);
+    setPathError(null);
+
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        temp_dir: tempDir,
+        music_dir: musicDir,
+      }),
+    });
+    const result = await res.json();
+
+    setPathSaving(false);
+    if (result.ok) {
+      setPathSaved(true);
+      setTimeout(() => setPathSaved(false), 2000);
+      fetch("/api/settings")
+        .then((r) => r.json())
+        .then((data) => {
+          setSettings(data);
+          setTempDir(data.temp_dir);
+          setMusicDir(data.music_dir);
+        });
+    } else {
+      if (result.errors) {
+        setPathError(
+          result.errors.temp_dir || result.errors.music_dir || "Invalid paths"
+        );
+      } else {
+        setPathError("Failed to save paths");
+      }
+    }
   }
 
   if (!settings) {
@@ -79,12 +126,12 @@ export default function SettingsPage() {
           <IntegrationRow
             label="Discord Notifications"
             configured={settings.discord_configured}
-            hint="Set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID in .env"
+            hint="Configure via Setup page or .env file"
           />
           <IntegrationRow
             label="Navidrome"
             configured={settings.navidrome_configured}
-            hint="Set NAVIDROME_URL, NAVIDROME_USER, NAVIDROME_PASSWORD in .env"
+            hint="Configure via Setup page or .env file"
           />
         </div>
       </section>
@@ -94,9 +141,7 @@ export default function SettingsPage() {
         <h2 className="text-lg font-semibold mb-3">Default Download Format</h2>
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">
           <div>
-            <label className="text-sm text-muted-fg mb-2 block">
-              Format
-            </label>
+            <label className="text-sm text-muted-fg mb-2 block">Format</label>
             <div className="flex rounded-lg border border-border overflow-hidden w-fit">
               {["mp3", "opus", "flac"].map((f) => (
                 <button
@@ -116,9 +161,7 @@ export default function SettingsPage() {
 
           {format !== "flac" && (
             <div>
-              <label className="text-sm text-muted-fg mb-2 block">
-                Quality
-              </label>
+              <label className="text-sm text-muted-fg mb-2 block">Quality</label>
               <select
                 value={quality}
                 onChange={(e) => setQuality(e.target.value)}
@@ -150,13 +193,69 @@ export default function SettingsPage() {
       {/* Paths */}
       <section>
         <h2 className="text-lg font-semibold mb-3">Paths</h2>
-        <div className="rounded-xl border border-border bg-card divide-y divide-border">
-          <PathRow label="Temp Downloads" path={settings.temp_dir} />
-          <PathRow label="Music Library" path={settings.music_dir} />
+        <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              Temp Downloads
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tempDir}
+                onChange={(e) => setTempDir(e.target.value)}
+                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg focus:outline-none font-mono"
+              />
+              <div className="flex items-center justify-center w-10">
+                {settings.temp_dir_verified ? (
+                  <CheckCircle className="h-5 w-5 text-success" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-error" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-2 block">
+              Music Library
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={musicDir}
+                onChange={(e) => setMusicDir(e.target.value)}
+                className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg focus:outline-none font-mono"
+              />
+              <div className="flex items-center justify-center w-10">
+                {settings.music_dir_verified ? (
+                  <CheckCircle className="h-5 w-5 text-success" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-error" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {pathError && (
+            <div className="flex items-center gap-2 text-sm text-error">
+              <AlertCircle className="h-4 w-4" />
+              {pathError}
+            </div>
+          )}
+
+          <button
+            onClick={handleSavePaths}
+            disabled={pathSaving}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg disabled:opacity-50"
+          >
+            {pathSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : pathSaved ? (
+              <Check className="h-4 w-4" />
+            ) : null}
+            {pathSaved ? "Saved" : "Save Paths"}
+          </button>
         </div>
-        <p className="text-xs text-muted-fg mt-2">
-          Paths are configured via environment variables.
-        </p>
       </section>
     </div>
   );
@@ -180,9 +279,7 @@ function IntegrationRow({
       )}
       <div className="flex-1">
         <p className="text-sm font-medium">{label}</p>
-        {!configured && (
-          <p className="text-xs text-muted-fg">{hint}</p>
-        )}
+        {!configured && <p className="text-xs text-muted-fg">{hint}</p>}
       </div>
       <span
         className={`text-xs px-2 py-0.5 rounded-full ${
@@ -193,20 +290,6 @@ function IntegrationRow({
       >
         {configured ? "Active" : "Not Set"}
       </span>
-    </div>
-  );
-}
-
-function PathRow({ label, path }: { label: string; path: string }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <FolderOpen className="h-4 w-4 text-muted-fg flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-fg truncate font-mono">
-          {path}
-        </p>
-      </div>
     </div>
   );
 }

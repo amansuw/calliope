@@ -96,6 +96,25 @@ function initSchema(db: Database.Database) {
   );
   insert.run("default_format", "mp3");
   insert.run("default_quality", "320");
+  insert.run("temp_dir", process.env.TEMP_DOWNLOAD_DIR || "./downloads");
+  insert.run("music_dir", process.env.MUSIC_LIBRARY_DIR || "./music");
+
+  // Migration: if path settings don't exist in DB but env vars do, migrate to DB
+  const migrateFromEnv = () => {
+    const tempDir = process.env.TEMP_DOWNLOAD_DIR;
+    const musicDir = process.env.MUSIC_LIBRARY_DIR;
+
+    const existingTemp = db.prepare("SELECT value FROM settings WHERE key = 'temp_dir'").get() as { value: string } | undefined;
+    if (!existingTemp && tempDir) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('temp_dir', ?)").run(tempDir);
+    }
+
+    const existingMusic = db.prepare("SELECT value FROM settings WHERE key = 'music_dir'").get() as { value: string } | undefined;
+    if (!existingMusic && musicDir) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('music_dir', ?)").run(musicDir);
+    }
+  };
+  migrateFromEnv();
 }
 
 // --- Settings helpers ---

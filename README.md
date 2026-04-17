@@ -1,6 +1,6 @@
 # Calliope
 
-A self-hosted music downloader and organizer for Spotify + YouTube sources.
+A self-hosted music library manager with metadata enrichment and automatic organization.
 
 Calliope resolves tracks/playlists, downloads audio with `yt-dlp`, enriches files
 with metadata/lyrics, moves them into your library structure, and keeps history
@@ -8,8 +8,8 @@ in SQLite with a Next.js UI.
 
 ## Features
 
-- Download from Spotify track/playlist links and YouTube video/playlist links.
-- Automatic YouTube matching for Spotify tracks (duration-aware best match).
+- Download audio from various online sources with automatic source matching
+- Metadata-aware matching based on artist, title, and duration
 - Audio output formats: `mp3`, `opus`, `flac`.
 - Metadata embedding via FFmpeg (title, artist, album, lyrics, cover art).
 - Fast duplicate detection by source ID + metadata/library checks.
@@ -23,7 +23,7 @@ in SQLite with a Next.js UI.
 - Next.js App Router (`app/` + API routes in `app/api/`)
 - SQLite (`better-sqlite3`) in-process
 - `yt-dlp` + `ffmpeg` external binaries
-- Spotify metadata via `spotify-scraper` CLI with fallback parser from Spotify web page data
+- Source metadata fetching via `spotify-scraper` with fallback web page parsing
 
 ## Project Structure
 
@@ -123,7 +123,7 @@ Default port mapping is `7200:7200`.
 - `NAVIDROME_USER`
 - `NAVIDROME_PASSWORD`
 
-### Downloader auth (age-restricted YouTube support)
+### Source Authentication
 
 Set one:
 
@@ -134,7 +134,7 @@ If both are set, `YTDLP_COOKIES_FILE` takes precedence.
 
 For headless servers, `YTDLP_COOKIES_FILE` is recommended.
 
-### Spotify scraper override
+### Metadata Scraper Override
 
 - `SPOTIFY_SCRAPER_CMD` (defaults to `spotify-scraper`)
 
@@ -202,6 +202,29 @@ Default settings seed:
 - `npm run build` - production build
 - `npm run start` - start production server on port `7200`
 
+## Supported Sources
+
+Calliope uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) as its download backend,
+which supports thousands of audio/video sites. Currently supported:
+
+- Spotify (track and playlist links) - metadata and source resolution
+- YouTube (video and playlist links) - audio download and matching
+- Any audio source supported by yt-dlp
+
+## Credits
+
+Built on open source software:
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Audio/video downloader (Unlicense)
+- [FFmpeg](https://ffmpeg.org/) - Audio processing (LGPL/GPL)
+- [spotify-scraper](https://github.com/DoctorDee/spotify-scraper) - Metadata (MIT)
+- [lrclib.net](https://lrclib.net/) - Lyrics database (CC0)
+- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) - Database (MIT)
+- [Next.js](https://nextjs.org/) - Framework (MIT)
+- [Tailwind CSS](https://tailwindcss.com/) - Styling (MIT)
+- [Recharts](https://recharts.org/) - Visualization (MIT)
+- [Lucide](https://lucide.dev/) - Icons (ISC)
+
 ## License
 
-No license file is currently defined in this repository.
+The Unlicense - See LICENSE file for details.

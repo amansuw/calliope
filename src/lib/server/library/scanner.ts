@@ -12,6 +12,7 @@ import { eq, inArray, isNull, sql } from 'drizzle-orm';
 import { readMediaChecksum, readMetadataBatch } from 'taglib-wasm/simple';
 import { matchKey, splitArtistTitle } from '$lib/text';
 import type { LibraryStatus } from '$lib/types';
+import { hasPassword } from '../auth';
 import { db, schema } from '../db';
 import type { LibraryFile } from '../db/schema';
 import { bus } from '../events';
@@ -214,6 +215,9 @@ export async function reindexFiles(paths: string[]) {
 let running: Promise<void> | null = null;
 
 export function scanLibrary(opts: { full?: boolean } = {}): Promise<void> {
+	// Before setup the library path is only a suggested default that may not exist yet;
+	// the setup action starts the first scan once the user has confirmed it.
+	if (!hasPassword()) return Promise.resolve();
 	if (running) return running;
 	running = doScan(opts).finally(() => {
 		running = null;

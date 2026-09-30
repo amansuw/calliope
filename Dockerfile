@@ -1,41 +1,48 @@
-FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat python3 make g++
-
-FROM base AS deps
+# ── build ──────────────────────────────────────────────────────────────
+FROM node:24-trixie-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
 RUN npm ci
-
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN npm run build && npm prune --omit=dev
 
-FROM node:20-alpine AS runner
+# ── runtime ────────────────────────────────────────────────────────────
+FROM node:24-trixie-slim
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg libchromaprint-tools python3 python3-venv ca-certificates tini \
+	&& rm -rf /var/lib/apt/lists/*
+
+# yt-dlp needs a JavaScript runtime to solve YouTube's player challenges.
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# yt-dlp lives in a venv owned by the app user so it can update itself at startup.
+RUN python3 -m venv /opt/yt-dlp \
+	&& /opt/yt-dlp/bin/pip install --no-cache-dir "yt-dlp[default]" \
+	&& ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+	&& chown -R node:node /opt/yt-dlp
+
 WORKDIR /app
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=build --chown=node:node /app/build ./build
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/drizzle ./drizzle
+COPY --from=build --chown=node:node /app/package.json ./
+COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
-# Install yt-dlp, ffmpeg, and build tools for native modules
-RUN apk add --no-cache ffmpeg python3 py3-pip libc6-compat make g++ && \
-    python3 -m pip install --break-system-packages yt-dlp && \
-    addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs && \
-    mkdir -p /app/data /app/downloads /app/music && \
-    chown -R nextjs:nodejs /app/data /app/downloads
+RUN mkdir -p /data /music && chown node:node /data /music
 
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+ENV NODE_ENV=production \
+	PORT=7200 \
+	CALLIOPE_DATA_DIR=/data \
+	MUSIC_DIR=/music \
+	STAGING_DIR=/data/staging \
+	YTDLP_AUTO_UPDATE=1 \
+	BODY_SIZE_LIMIT=10M
 
-USER nextjs
+USER node
+VOLUME ["/data"]
 EXPOSE 7200
-ENV PORT=7200
-ENV HOSTNAME="0.0.0.0"
-ENV DATABASE_URL="file:/app/data/calliope.db"
-ENV TEMP_DOWNLOAD_DIR="/app/downloads"
-ENV MUSIC_LIBRARY_DIR="/app/music"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||7200)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+ENTRYPOINT ["tini", "--", "/entrypoint.sh"]
+CMD ["node", "build"]

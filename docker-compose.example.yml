@@ -1,61 +1,25 @@
 services:
   calliope:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
+    container_name: calliope
     ports:
-      - "7200:7200"
-    # Copy this file to docker-compose.yml and customize volumes for your system
-    # Example local development setup:
-    volumes:
-      # Database and app data
-      - calliope-data:/app/data
-      
-      #临时下载目录 - 修改为实际路径
-      # TEMP_DOWNLOAD_DIR: ./downloads (容器内路径)
-      - ./downloads:/app/downloads
-      
-      #音乐库目录 - 修改为实际路径
-      # MUSIC_LIBRARY_DIR: ./music (容器内路径)
-      - ./music:/app/music
+      - '7200:7200'
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=file:/app/data/calliope.db
-      - TEMP_DOWNLOAD_DIR=/app/downloads
-      - MUSIC_LIBRARY_DIR=/app/music
+      # First-boot password (skips the setup screen). Change it later in Settings › Account.
+      CALLIOPE_PASSWORD: change-me
+      # Public URL the app is reached at — required for sign-in when behind a reverse proxy.
+      ORIGIN: http://localhost:7200
+      # Optional: path to the old Calliope v1 database, imported from Settings › Account.
+      # LEGACY_DB: /legacy/calliope.db
+      TZ: Etc/UTC
+    volumes:
+      - calliope-v2-data:/data # database, staging, quarantine (kept separate from the v1 volume)
+      - /path/to/Music:/music # your library (read/write)
+      # - calliope-data:/legacy:ro             # old Calliope v1 volume, for the one-time import
+      # - /path/to/cookies.txt:/config/cookies.txt:ro
     restart: unless-stopped
 
-# Named volumes for persistent data
 volumes:
-  calliope-data:
-
-# =====================================================
-# 高级示例：配置自定义路径
-# =====================================================
-
-# 示例1：使用主机上的自定义路径
-# volumes:
-#   - calliope-data:/app/data
-#   - /path/to/my/downloads:/app/downloads
-#   - /path/to/my/music:/app/music
-
-# 示例2：使用NAS挂载
-# volumes:
-#   - calliope-data:/app/data
-#   - /mnt/nas/calliope/downloads:/app/downloads
-#   - /mnt/nas/Music:/app/music
-
-# 示例3：配置Navidrome集成
-# environment:
-#   - NODE_ENV=production
-#   - DATABASE_URL=file:/app/data/calliope.db
-#   - TEMP_DOWNLOAD_DIR=/app/downloads
-#   - MUSIC_LIBRARY_DIR=/app/music
-#   - NAVIDROME_URL=http://host.docker.internal:4533
-#   - NAVIDROME_USER=admin
-#   - NAVIDROME_PASSWORD=yourpassword
-
-# 示例4：配置Discord通知
-# environment:
-#   - DISCORD_BOT_TOKEN=your_bot_token
-#   - DISCORD_CHANNEL_ID=your_channel_id
+  calliope-v2-data:
+  # calliope-data:        # the v1 volume (uncomment with the /legacy mount above)
+  #   external: true

@@ -5,3 +5,5 @@ build
 .env
 data
 *.db
+legacy
+docker-compose.yml

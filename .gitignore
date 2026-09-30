@@ -24,3 +24,7 @@ vite.config.ts.timestamp-*
 /cookies/
 cookies.txt
 *.cookies.txt
+
+# Server deployment (local compose file, v1 database copy)
+/docker-compose.yml
+/legacy/

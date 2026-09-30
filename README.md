@@ -1,230 +1,103 @@
 # Calliope
 
-A self-hosted music library manager with metadata enrichment and automatic organization.
+Self-hosted music harvester and library studio. Paste Spotify or YouTube links, or monitor playlists,
+albums and channels, and Calliope matches, downloads, tags and files every track into your library.
 
-Calliope resolves tracks/playlists, downloads audio with `yt-dlp`, enriches files
-with metadata/lyrics, moves them into your library structure, and keeps history
-in SQLite with a Next.js UI.
+Calliope v2: a ground-up rewrite of the original Next.js app on SvelteKit 5, Drizzle and SQLite.
 
 ## Features
 
-- Download audio from various online sources with automatic source matching
-- Metadata-aware matching based on artist, title, and duration
-- Audio output formats: `mp3`, `opus`, `flac`.
-- Metadata embedding via FFmpeg (title, artist, album, lyrics, cover art).
-- Fast duplicate detection by source ID + metadata/library checks.
-- Playlist monitoring with immediate checks, hourly cron scans, and manual scan controls.
-- Discord notifications for completed downloads, playlist updates, and errors.
-- Optional Navidrome rescan trigger after successful downloads.
-- Live dashboard (home), downloads queue/history view, playlist monitor, and settings.
+**Sync Hub**
 
-## Tech Stack
+- **Pipeline:** a persistent download queue that survives restarts, with parallel workers, live
+  progress/speed/ETA over SSE, per-track yt-dlp logs, drag-and-drop reordering, pause/resume and
+  retries with backoff.
+- **Sources:** monitor Spotify playlists and albums, and YouTube playlists, albums and channels.
+  Each source has its own schedule (15 min to daily, or manual), and new tracks are either
+  auto-queued or held in a diff preview for you to pick from.
+- **Matching:** Spotify tracks are matched to YouTube using the top YouTube Music result plus
+  YouTube search. Candidates are scored on title, artist and duration, and live, cover and remix
+  uploads are penalized. Low-confidence matches are flagged, and very low ones are rejected.
+- **Tagging:** title, artists, album, album artist, track/disc numbers, year, cover art and
+  (synced) lyrics from LRCLIB, written natively with TagLib for MP3, M4A, Opus and FLAC.
+- **Filing:** a folder template engine, e.g. `{albumartist|artist}/{album|Singles}/[{track:02} - ]{title}`.
+- **Integrations:** Navidrome rescan and Discord notifications (webhook or bot).
 
-- Next.js App Router (`app/` + API routes in `app/api/`)
-- SQLite (`better-sqlite3`) in-process
-- `yt-dlp` + `ffmpeg` external binaries
-- Source metadata fetching via `spotify-scraper` with fallback web page parsing
+**Library**
 
-## Project Structure
+- **Library Explorer:** an incremental scanner (re-reads only changed files), a virtualized track
+  table with multi-column sort (shift-click adds a sort key), instant search, format/quality/missing-tag
+  filters, an artist facet, an album grid and a track details drawer.
+- **Player:** Web Audio playback with an interactive waveform, live spectrum visualizer,
+  near-gapless transitions, loudness normalization (capped by each track's peak headroom), media keys
+  and a play queue.
+- **Metadata Studio:** a spreadsheet-style tag grid with staged edits (nothing is written until you
+  save). Tools:
+  - bulk edit
+  - find/replace, with regex
+  - casing fixes
+  - filename pattern parser (`%track% - %artist% - %title%`)
+  - track numbering
+  - MusicBrainz search and auto-match, plus AcoustID audio identification
+  - Cover Art Archive artwork, image upload, LRCLIB lyrics
+  - organize files by template
+- **Duplicate Inspector:** three engines (identical audio hash, same normalized tags, Chromaprint
+  acoustic similarity) and a side-by-side comparison matrix. The best copy is picked automatically,
+  and resolving can merge missing tags, artwork and lyrics into it. Removed copies go to a quarantine
+  folder with one-click restore; permanent deletion requires typing a confirmation.
 
-- `app/page.tsx` - Dashboard (home)
-- `app/downloads/page.tsx` - download queue/history
-- `app/playlists/page.tsx` - monitored playlists
-- `app/library/page.tsx` - library browser
-- `app/stats/page.tsx` - download statistics
-- `app/settings/page.tsx` - settings and integration status
-- `app/api/*` - API routes
-- `components/` - client UI components
-- `lib/db.ts` - schema and DB helpers
-- `lib/queue.ts` - core download pipeline and job orchestration
-- `lib/downloader.ts` - yt-dlp search/playlist/download/auth logic
-- `lib/cron.ts` - monitored playlist polling and enqueue behavior
-- `lib/runtime.ts` - one-time background startup bootstrap
-- `lib/metadata.ts` - FFmpeg metadata embedding
-- `lib/mover.ts` - final library path generation and file move
-- `lib/dedup.ts` - duplicate detection logic
-- `lib/spotify.ts` - Spotify metadata fetching
-- `lib/lyrics.ts` - lyrics fetching from LRCLIB
-- `lib/discord.ts` - Discord notifications
-- `lib/navidrome.ts` - Navidrome rescan integration
-- `lib/library-index.ts` - library scanning and indexing
-- `docker-compose.yml` / `Dockerfile` - containerized deployment
-
-## Requirements
-
-### Local runtime requirements
-
-- Node.js 20+
-- `yt-dlp` available in `PATH`
-- `ffmpeg` available in `PATH`
-- `spotify-scraper` optional (recommended for full Spotify metadata); fallback parsing is built in
-
-### Docker runtime requirements
-
-Docker image installs `yt-dlp` and `ffmpeg` for you. You still need:
-
-- working host path mounts for downloads/library
-- valid environment configuration
-
-## Quick Start (Local)
-
-1. Install dependencies: `npm ci`
-2. Start dev server: `npm run dev`
-3. Open `http://localhost:7200` - you'll be guided through the setup wizard
-4. Configure your paths and optional integrations
-
-## Quick Start (Docker)
-
-1. Copy `docker-compose.example.yml` to `docker-compose.yml`
-2. Update volume paths for your system
-3. Build and start: `docker compose up -d --build`
-4. Open `http://localhost:7200` - you'll be guided through the setup wizard
-
-## First-Run Setup
-
-On first launch, you'll be redirected to the Setup wizard where you can:
-
-- **Configure storage paths** - temp downloads and music library directories
-- **Validate paths** - ensure directories exist and are writable
-- **Optional integrations** - Discord notifications and Navidrome rescan
-
-Paths are stored in the database; integration secrets are saved to `.env`.
-Existing users can reconfigure anytime via Settings page.
-
-### Rebuilding
-
-After code changes, rebuild the container:
+## Running with Docker
 
 ```bash
-docker compose down
-# Fix ownership if needed (replace with your data path)
-sudo chown -R 1000:1000 /path/to/data
-docker compose build --no-cache
-docker compose up -d
+cp docker-compose.example.yml docker-compose.yml   # edit the volume paths and password
+docker compose up -d --build
 ```
 
-Default port mapping is `7200:7200`.
+Open `http://localhost:7200`. The image bundles FFmpeg, Chromaprint, deno and yt-dlp, and updates
+yt-dlp on every start (`YTDLP_AUTO_UPDATE=1`). YouTube regularly breaks old yt-dlp releases.
 
-## Environment Variables
+Behind a reverse proxy, set `ORIGIN` to the public URL, or sign-in form posts are rejected.
 
-### Core
+## Running locally
 
-- `DATABASE_URL`
-  - `file:./calliope.db` (local)
-  - `file:/app/data/calliope.db` (container)
-- `TEMP_DOWNLOAD_DIR`
-- `MUSIC_LIBRARY_DIR`
+Requirements: Node 24+, `yt-dlp` (recent), `ffmpeg`/`ffprobe`, and ideally `deno` (yt-dlp uses it
+for YouTube). `fpcalc` (Chromaprint) is optional.
 
-### Optional Integrations
+```bash
+cp .env.example .env
+npm install
+npm run dev          # http://localhost:7200
+```
 
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_CHANNEL_ID`
-- `NAVIDROME_URL`
-- `NAVIDROME_USER`
-- `NAVIDROME_PASSWORD`
+The first visit opens a setup screen to choose the library and staging folders and set a password.
 
-### Source Authentication
+## Coming from Calliope v1
 
-Set one:
+Mount the old data volume and use **Settings › Account & data › Import from Calliope v1** (or set
+`LEGACY_DB`). This imports monitored playlists and finished-download history, so monitors don't
+re-download what you already have.
 
-- `YTDLP_COOKIES_FROM_BROWSER` (`firefox`, `chrome`, `chromium`, `brave`, etc.)
-- `YTDLP_COOKIES_FILE` (absolute path to `cookies.txt`)
+## Notes
 
-If both are set, `YTDLP_COOKIES_FILE` takes precedence.
+- **Spotify:** playlists are read from public embed pages, which list at most 100 tracks. Spotify's
+  February 2026 API changes restrict playlist contents to playlists the app owner owns. Adding API
+  credentials still helps with album and track metadata (album names, track numbers, release dates).
+- **Formats:** YouTube audio is lossy. The FLAC preset stores it losslessly but adds no quality.
+  Opus avoids re-encoding.
 
-For headless servers, `YTDLP_COOKIES_FILE` is recommended.
+## Development
 
-### Metadata Scraper Override
+| Command                      |                                                                  |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `npm run dev`                | Dev server on :7200                                              |
+| `npm run check`              | Type-check (svelte-check)                                        |
+| `npm test`                   | Unit tests (vitest)                                              |
+| `npm run db:generate`        | Generate a migration after editing `src/lib/server/db/schema.ts` |
+| `npm run build && npm start` | Production build                                                 |
 
-- `SPOTIFY_SCRAPER_CMD` (defaults to `spotify-scraper`)
-
-## Download Pipeline
-
-For each track:
-
-1. URL parsing and job creation
-2. Resolve source metadata
-3. Fast duplicate check by source ID (`spotify_id`/`youtube_id`)
-4. Metadata duplicate check by artist/title (+ library file check)
-5. Download audio via `yt-dlp`
-6. Fetch lyrics from LRCLIB
-7. Embed metadata/artwork with FFmpeg
-8. Move into library path:
-   - `{MUSIC_LIBRARY_DIR}/{artist}/{album}/{title}.{ext}`
-   - or `{MUSIC_LIBRARY_DIR}/{artist}/{title}.{ext}`
-9. Optional Discord notify + Navidrome rescan
-
-## API Overview
-
-- `POST /api/add` - enqueue one or many URLs
-- `GET /api/jobs` - list jobs with tracks
-- `GET /api/jobs/:id` - fetch one job
-- `DELETE /api/jobs/:id` - remove job + tracks
-- `GET /api/search?q=...` - search completed tracks
-- `GET /api/stats` - aggregate stats
-- `GET /api/settings` - integration/path/default settings snapshot
-- `PATCH /api/settings` - update defaults (`default_format`, `default_quality`)
-- `GET /api/playlists` - list monitored playlists (+ per-track statuses)
-- `POST /api/playlists` - add monitored playlist
-- `PATCH /api/playlists/:id` - update playlist flags and trigger immediate recheck
-- `DELETE /api/playlists/:id` - remove monitored playlist
-- `POST /api/playlists/scan` - run immediate scan across all playlists
-- `POST /api/library/scan` - scan library directory and update index
-- `GET /api/events` - Server-Sent Events stream for queue events
-
-## Data Model (SQLite)
-
-Tables created automatically:
-
-- `settings`
-- `jobs`
-- `tracks`
-- `monitored_playlists`
-
-Default settings seed:
-
-- `default_format = mp3`
-- `default_quality = 320`
-
-## Notes and Operational Caveats
-
-- Queue processing is in-process; if the app process restarts, in-memory queue
-  state is lost (DB history remains).
-- Playlist monitor runs hourly via `lib/cron.ts` and starts automatically at runtime
-  when API routes initialize background services. It runs immediately on startup, then every hour.
-- Playlists page includes per-playlist **Scan now** and global **Scan all** controls.
-- Keep secrets out of version control. Use environment management practices and
-  do not commit real tokens/passwords.
-
-## Scripts
-
-- `npm run dev` - start development server on port `7200`
-- `npm run build` - production build
-- `npm run start` - start production server on port `7200`
-
-## Supported Sources
-
-Calliope uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) as its download backend,
-which supports thousands of audio/video sites. Currently supported:
-
-- Spotify (track and playlist links) - metadata and source resolution
-- YouTube (video and playlist links) - audio download and matching
-- Any audio source supported by yt-dlp
-
-## Credits
-
-Built on open source software:
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Audio/video downloader (Unlicense)
-- [FFmpeg](https://ffmpeg.org/) - Audio processing (LGPL/GPL)
-- [spotify-scraper](https://github.com/DoctorDee/spotify-scraper) - Metadata (MIT)
-- [lrclib.net](https://lrclib.net/) - Lyrics database (CC0)
-- [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) - Database (MIT)
-- [Next.js](https://nextjs.org/) - Framework (MIT)
-- [Tailwind CSS](https://tailwindcss.com/) - Styling (MIT)
-- [Recharts](https://recharts.org/) - Visualization (MIT)
-- [Lucide](https://lucide.dev/) - Icons (ISC)
+Layout: `src/lib/server/` holds the pipeline, sources, sync scheduler, tagging and integrations.
+`src/lib/components/` holds the UI. Routes live under `src/routes/(app)` and `src/routes/api`.
 
 ## License
 
-The Unlicense - See LICENSE file for details.
+The Unlicense. See `LICENSE`.

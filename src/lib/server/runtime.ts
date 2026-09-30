@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { ensurePasswordFromEnv, pruneSessions } from './auth';
 import { checkBinaries } from './binaries';
+import { env } from './env';
 import { bus } from './events';
 import { pipeline } from './pipeline/queue';
 import { getSettings } from './settings';
@@ -16,6 +18,10 @@ async function boot() {
 	pruneSessions();
 	const { paths } = getSettings();
 	for (const dir of [paths.stagingDir, paths.quarantineDir]) fs.mkdirSync(dir, { recursive: true });
+	// A library folder inside the data dir (the default) is ours to create. Anything elsewhere may be
+	// a mount point that isn't attached yet, so it's reported by the scanner instead of created.
+	const library = path.resolve(paths.libraryDir);
+	if (library.startsWith(env.dataDir + path.sep)) fs.mkdirSync(library, { recursive: true });
 
 	const bins = await checkBinaries(true);
 	const missing = bins.filter((b) => b.required && b.error);

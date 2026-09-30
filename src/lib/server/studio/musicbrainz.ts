@@ -156,14 +156,15 @@ export async function searchRecordings(q: RecordingQuery): Promise<MbCandidate[]
 	if (q.artist) parts.push(`artist:"${esc(q.artist)}"`);
 	const base = parts.length;
 	if (q.album) parts.push(`release:"${esc(q.album)}"`);
-	if (q.durationMs) {
-		const s = Math.round(q.durationMs);
-		parts.push(`dur:[${s - 5000} TO ${s + 5000}]`);
-	}
-	const filters = q.albumOnly
-		? ' AND status:official AND primarytype:album AND NOT secondarytype:live AND NOT secondarytype:compilation'
-		: '';
-	const limit = q.albumOnly ? '25' : '15';
+	// No `dur:` filter: video edits and radio cuts differ from the album version by 10–20s, and
+	// a ±5s window silently drops the album recording. Duration is weighed when ranking instead.
+	// Only positive filters: MusicBrainz evaluates release fields across *all* of a recording's
+	// releases, so "NOT secondarytype:compilation" would drop a studio-album recording just
+	// because it also appears on a Now That's What I Call Music. Live/compilation releases are
+	// ranked down afterwards instead.
+	const filters = q.albumOnly ? ' AND status:official AND primarytype:album' : '';
+	// Popular songs sit on dozens of compilations; fetch deep enough to reach the album recording
+	const limit = q.albumOnly ? '100' : '25';
 	let data = await mb<{ recordings: RawRecording[] }>('/recording', {
 		query: parts.join(' AND ') + filters,
 		limit

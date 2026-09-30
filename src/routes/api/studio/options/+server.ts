@@ -8,7 +8,12 @@ import { enrichQueryFor } from '$lib/server/studio/lookup';
 export const POST = handler(async (event) => {
 	const b = await body(
 		event,
-		z.object({ id: z.string(), title: z.string().optional(), artist: z.string().optional() })
+		z.object({
+			id: z.string(),
+			title: z.string().optional(),
+			artist: z.string().optional(),
+			mode: z.enum(['all', 'audio']).default('all')
+		})
 	);
 	const { query } = enrichQueryFor(b.id);
 	// The Studio may have staged corrected title/artist that aren't in the file yet
@@ -16,6 +21,10 @@ export const POST = handler(async (event) => {
 	if (b.artist) query.artist = b.artist;
 	if (!query.title || !query.artist) throw new Error('Needs a title and artist to search');
 	const log: string[] = [];
-	const options = await albumOptions(query, (l) => log.push(l));
-	return json({ options, notes: log });
+	let acoustic = 'unavailable';
+	const options = await albumOptions(query, (l) => log.push(l), {
+		audioOnly: b.mode === 'audio',
+		onAcoustic: (st) => (acoustic = st)
+	});
+	return json({ options, notes: log, acoustic });
 });

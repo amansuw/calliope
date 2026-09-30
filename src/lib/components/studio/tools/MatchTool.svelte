@@ -41,6 +41,7 @@
 
 	let options = $state<AlbumOption[]>([]);
 	let notes = $state<string[]>([]);
+	let acoustic = $state<'matched' | 'no-match' | 'unavailable' | 'error' | null>(null);
 	let forId = $state<string | null>(null);
 	let busy = $state<'find' | 'auto' | string | null>(null);
 	let showAll = $state(false);
@@ -74,12 +75,14 @@
 		forId = f.id;
 		showAll = false;
 		try {
-			const res = await api.post<{ options: AlbumOption[]; notes: string[] }>(
-				'/api/studio/options',
-				{ id: f.id, ...staged(f) }
-			);
+			const res = await api.post<{
+				options: AlbumOption[];
+				notes: string[];
+				acoustic: typeof acoustic;
+			}>('/api/studio/options', { id: f.id, ...staged(f) });
 			options = res.options;
 			notes = res.notes;
+			acoustic = res.acoustic;
 		} finally {
 			busy = null;
 		}
@@ -124,6 +127,7 @@
 		busy = 'auto';
 		const targets = [...studio.targets];
 		autoProgress = { done: 0, total: targets.length, matched: 0 };
+		const unmatched: string[] = [];
 		try {
 			for (const f of targets) {
 				const res = await api
@@ -156,13 +160,24 @@
 						label: e.album ?? ''
 					};
 					autoProgress.matched++;
+				} else {
+					unmatched.push(String(studio.value(f, 'title') ?? f.relPath));
 				}
 				autoProgress.done++;
 			}
+			const { matched, total } = autoProgress;
 			toasts.push({
-				level: 'success',
-				title: `Matched ${autoProgress.matched} of ${autoProgress.total}`,
-				message: 'Changes are staged — review the highlighted cells, then save.'
+				level: matched === total ? 'success' : matched ? 'warning' : 'error',
+				title: matched ? `Matched ${matched} of ${total}` : 'No confident matches',
+				message:
+					[
+						matched ? 'Changes are staged — review the highlighted cells, then save.' : '',
+						unmatched.length
+							? `Not matched: ${unmatched.slice(0, 5).join(', ')}${unmatched.length > 5 ? '…' : ''} — use Identify to pick an album by hand.`
+							: ''
+					]
+						.filter(Boolean)
+						.join('\n') || undefined
 			});
 		} finally {
 			busy = null;
@@ -214,11 +229,32 @@
 	<button class="btn btn-sm w-full" onclick={() => find(file)} disabled={!!busy}>
 		{#if busy === 'find'}<LoaderCircle class="h-3 w-3 animate-spin" />{:else}<Search
 				class="h-3 w-3"
-			/>{/if} Find albums
+			/>{/if} Identify
 	</button>
+	<p class="hint !mt-1.5">
+		Audio fingerprint (AcoustID) plus MusicBrainz search, ranked by confidence.
+	</p>
 
 	{#if forId === file.id}
-		{#each notes as n (n)}<p class="mt-2 text-[11px] text-warn">{n}</p>{/each}
+		{#if acoustic}
+			<p
+				class="mt-2 flex items-center gap-1.5 text-[11px] {acoustic === 'matched'
+					? 'text-ok'
+					: acoustic === 'error'
+						? 'text-bad'
+						: 'text-ink-400'}"
+			>
+				<AudioLines class="h-3 w-3 shrink-0" />
+				{acoustic === 'matched'
+					? 'Audio fingerprint matched — results marked Audio are confirmed by the recording itself.'
+					: acoustic === 'no-match'
+						? 'Audio fingerprint: no match in AcoustID — ranked by tags and duration.'
+						: acoustic === 'error'
+							? 'Audio fingerprint lookup failed — ranked by tags and duration.'
+							: 'Audio fingerprint off — add an AcoustID application key and install fpcalc for audio matching.'}
+			</p>
+		{/if}
+		{#each notes as n (n)}<p class="mt-1 text-[11px] text-warn">{n}</p>{/each}
 		{#if options.length}
 			<div class="mt-3 space-y-2">
 				{#each visible as o, i (o.key)}

@@ -228,6 +228,8 @@ export async function releaseExtras(
 	return { year, genres, artworkUrl };
 }
 
+const acousticReadySafe = () => acoustidReady().catch(() => false);
+
 async function tryAcoustic(q: EnrichQuery, log: (line: string) => void): Promise<MbCandidate[]> {
 	if (!q.file || !(await acoustidReady())) return [];
 	try {
@@ -314,16 +316,36 @@ export interface AlbumOption {
  * Every album a track could be tagged from, one entry per release group, ranked by confidence.
  * Used by the Studio so the user can pick (and see the cover of) the right album.
  */
+export type AcousticStatus = 'matched' | 'no-match' | 'unavailable' | 'error';
+
 export async function albumOptions(
 	q: EnrichQuery,
-	log: (line: string) => void = () => {}
+	log: (line: string) => void = () => {},
+	opts: { audioOnly?: boolean; onAcoustic?: (status: AcousticStatus) => void } = {}
 ): Promise<AlbumOption[]> {
-	const acoustic = await tryAcoustic(q, log);
+	const ready = !!q.file && (await acousticReadySafe());
+	if (opts.audioOnly && !ready) {
+		throw new Error(
+			'Identify audio needs Chromaprint (fpcalc) and an AcoustID application key — see Settings › Integrations'
+		);
+	}
+	let failed = false;
+	const acoustic = ready
+		? await tryAcoustic(q, (l) => {
+				failed = true;
+				log(l);
+			})
+		: [];
+	opts.onAcoustic?.(
+		!ready ? 'unavailable' : failed ? 'error' : acoustic.length ? 'matched' : 'no-match'
+	);
 	const query = { title: q.title, artist: q.artist, durationMs: q.durationMs };
-	const text = [
-		...(await searchRecordings({ ...query, albumOnly: true })),
-		...(await searchRecordings(query))
-	];
+	const text = opts.audioOnly
+		? []
+		: [
+				...(await searchRecordings({ ...query, albumOnly: true })),
+				...(await searchRecordings(query))
+			];
 	const best = new Map<string, AlbumOption>();
 	const add = (c: MbCandidate, verified: boolean) => {
 		for (const r of c.releases) {

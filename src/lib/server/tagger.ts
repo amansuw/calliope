@@ -11,7 +11,7 @@ export interface TagWrite {
 	trackNumber?: number | null;
 	trackTotal?: number | null;
 	discNumber?: number | null;
-	genre?: string | null;
+	genre?: string | string[] | null;
 	isrc?: string | null;
 	comment?: string | null;
 	lyrics?: string | null;

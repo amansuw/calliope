@@ -358,6 +358,13 @@
 				</Field>
 				<Field
 					row
+					label="Enrich from MusicBrainz"
+					hint="Look up the studio album, track numbers, original year, genres and album cover art for each download. YouTube uploads otherwise only carry the video's thumbnail."
+				>
+					<Switch bind:checked={draft.pipeline.enrichMusicBrainz} label="Enrich from MusicBrainz" />
+				</Field>
+				<Field
+					row
 					label="Skip tracks already in the library"
 					hint="Matches by artist + title against the library index."
 				>
@@ -710,9 +717,11 @@
 
 			<Section
 				title="AcoustID"
-				description="Free application key from acoustid.org — used by Metadata Studio to identify tracks by their audio."
+				description="Identifies tracks by their audio (Chromaprint fingerprint) instead of their tags — the most precise way to pick the right recording. Used by downloads, Auto-tag and the Studio when fpcalc is installed."
 			>
-				<Field label="API key"
+				<Field
+					label="Application API key"
+					hint="Register an application (free, instant) at acoustid.org/new-application and paste its key. The key on your acoustid.org account page is a user key for submitting fingerprints and won't work for lookups."
 					><input
 						class="input font-mono"
 						type="password"

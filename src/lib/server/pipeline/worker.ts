@@ -5,6 +5,7 @@ import { FORMAT_PRESETS, type FormatPresetId } from '$lib/formats';
 import type { TrackStatus } from '$lib/status';
 import { matchKey, splitArtistTitle } from '$lib/text';
 import { db, schema } from '../db';
+import { applyEnrichment, enrich, splitGenres, type Enrichment } from '../enrich';
 import type { Track } from '../db/schema';
 import { fetchLyrics } from '../integrations/lyrics';
 import { findInLibrary } from '../library/lookup';
@@ -151,6 +152,28 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 	try {
 		// 5. Tag -------------------------------------------------------------------------
 		ctx.stage('tagging');
+		// MusicBrainz: studio album, track numbers, original year, genres and real cover art.
+		// Spotify's own album info (when present) stays authoritative; YouTube uploads only know
+		// the video, so MusicBrainz decides the album for those.
+		let mbMatch: Enrichment | null = null;
+		if (settings.pipeline.enrichMusicBrainz) {
+			const keepAlbum = t.provider === 'spotify' && !!t.album;
+			mbMatch = await enrich(
+				{
+					artist: t.artist,
+					title: t.title,
+					durationMs: t.durationMs,
+					album: keepAlbum ? t.album : null,
+					file
+				},
+				ctx.log
+			).catch((err: Error) => {
+				ctx.log(`MusicBrainz lookup failed: ${err.message}`);
+				return null;
+			});
+			if (mbMatch) update(applyEnrichment(t, mbMatch, { keepAlbum }));
+		}
+		checkAbort(ctx.signal);
 		const durationSec = t.durationMs ? t.durationMs / 1000 : null;
 		let lyrics: Awaited<ReturnType<typeof fetchLyrics>> = null;
 		if (settings.lyrics.enabled) {
@@ -169,9 +192,15 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			year: t.year ?? undefined,
 			trackNumber: t.trackNumber ?? undefined,
 			discNumber: t.discNumber ?? undefined,
-			genre: t.genre ?? undefined,
+			trackTotal:
+				mbMatch && mbMatch.album === t.album ? (mbMatch.trackTotal ?? undefined) : undefined,
+			genre: splitGenres(t.genre),
 			comment: t.matchUrl ?? undefined,
-			lyrics: lyricText ?? undefined
+			lyrics: lyricText ?? undefined,
+			mbRecordingId: mbMatch?.recordingId,
+			mbReleaseId:
+				mbMatch && mbMatch.album === t.album ? (mbMatch.releaseId ?? undefined) : undefined,
+			mbArtistId: mbMatch?.artistId ?? undefined
 		});
 
 		let hasArtwork = false;
@@ -198,8 +227,7 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			disc: t.discNumber,
 			genre: t.genre
 		});
-		const dest = uniquePath(path.join(settings.paths.libraryDir, `${rel}.${ext}`));
-		moveFile(file, dest);
+		const dest = moveFile(file, uniquePath(path.join(settings.paths.libraryDir, `${rel}.${ext}`)));
 		if (settings.lyrics.writeLrcFile && lyrics?.synced) {
 			fs.writeFileSync(dest.replace(/\.[^.]+$/, '.lrc'), lyrics.synced);
 		}
@@ -260,8 +288,12 @@ function uniquePath(p: string) {
 	}
 }
 
-/** rename(), falling back to copy+unlink across filesystems (staging on SSD, library on HDD). */
-export function moveFile(from: string, to: string) {
+/**
+ * rename(), falling back to copy+unlink across filesystems (staging on SSD, library on HDD).
+ * Returns the path as it exists on disk: on case-insensitive filesystems (macOS) "System of a
+ * Down/…" lands inside an existing "System Of A Down/" folder, and the index must record that.
+ */
+export function moveFile(from: string, to: string): string {
 	fs.mkdirSync(path.dirname(to), { recursive: true });
 	try {
 		fs.renameSync(from, to);
@@ -269,5 +301,39 @@ export function moveFile(from: string, to: string) {
 		if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
 		fs.copyFileSync(from, to);
 		fs.rmSync(from);
+	}
+	return trueCasePath(to);
+}
+
+/**
+ * The path with each segment spelled the way it exists on disk. On case-insensitive filesystems
+ * "System of a Down/Toxicity" may really be the existing "System Of A Down/Toxicity" folder, and
+ * the index must record what a directory walk will report. (No symlink resolution, unlike realpath.)
+ */
+export function trueCasePath(p: string): string {
+	const parts = p.split(path.sep);
+	let cur = parts[0] === '' ? path.sep : '.';
+	for (const part of parts[0] === '' ? parts.slice(1) : parts) {
+		if (!part) continue;
+		let entries: string[] = [];
+		try {
+			entries = fs.readdirSync(cur);
+		} catch {
+			/* unreadable: keep the given spelling */
+		}
+		const real = entries.includes(part)
+			? part
+			: entries.find((e) => e.toLowerCase() === part.toLowerCase());
+		cur = path.join(cur, real ?? part);
+	}
+	return path.isAbsolute(p) ? cur : path.relative('.', cur);
+}
+
+/** Two paths name the same existing file (true for case-only differences on macOS). */
+export function samePath(a: string, b: string) {
+	try {
+		return fs.realpathSync.native(a) === fs.realpathSync.native(b);
+	} catch {
+		return false;
 	}
 }

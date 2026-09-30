@@ -28,7 +28,9 @@ export const SettingsSchema = z.object({
 			/** Below this, the track fails instead of downloading a likely-wrong song */
 			rejectScore: z.number().min(0).max(1).default(0.35),
 			maxAttempts: z.number().int().min(1).max(10).default(3),
-			preferYtMusic: z.boolean().default(true)
+			preferYtMusic: z.boolean().default(true),
+			/** Look up album, track numbers, year, genres and cover art on MusicBrainz */
+			enrichMusicBrainz: z.boolean().default(true)
 		})
 		.prefault({}),
 	ytdlp: z
@@ -111,6 +113,14 @@ export const SECRET_MASK = '••••••••';
 
 let cache: Settings | null = null;
 
+/** Folders are stored absolute: paths relative to wherever the server happened to start are fragile. */
+function absolutePaths(s: Settings): Settings {
+	for (const k of ['libraryDir', 'stagingDir', 'quarantineDir'] as const) {
+		if (s.paths[k]) s.paths[k] = path.resolve(s.paths[k]);
+	}
+	return s;
+}
+
 function defaults(): Settings {
 	const s = SettingsSchema.parse({});
 	s.paths.libraryDir = env.musicDir ?? path.join(env.dataDir, 'music');
@@ -131,7 +141,7 @@ export function getSettings(): Settings {
 	}
 	const parsed = SettingsSchema.safeParse(merged);
 	// A bad stored value (e.g. from an older version) shouldn't brick the app — fall back per field.
-	cache = parsed.success ? parsed.data : base;
+	cache = absolutePaths(parsed.success ? parsed.data : base);
 	return cache;
 }
 
@@ -147,7 +157,7 @@ export function updateSettings(patch: DeepPartial<Settings>): Settings {
 			next[section][k] = v;
 		}
 	}
-	const parsed = SettingsSchema.parse(next);
+	const parsed = absolutePaths(SettingsSchema.parse(next));
 	db.transaction((tx) => {
 		for (const section of Object.keys(patch) as SettingsSection[]) {
 			tx.insert(schema.settings)

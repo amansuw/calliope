@@ -20,7 +20,7 @@ export interface MatchCandidate {
 }
 
 /** Version markers that make a different recording unless the target title has them too. */
-const VARIANTS = [
+export const VARIANTS = [
 	'live',
 	'cover',
 	'remix',

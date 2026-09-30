@@ -5,7 +5,7 @@ import { readMetadata } from 'taglib-wasm/simple';
 import { db, schema } from '../db';
 import { fetchLyrics } from '../integrations/lyrics';
 import { reindexFiles } from '../library/scanner';
-import { moveFile } from '../pipeline/worker';
+import { moveFile, samePath } from '../pipeline/worker';
 import { renderTemplate } from '../pipeline/template';
 import { getSettings } from '../settings';
 import { fetchImage, writeArtwork, writeTags, type TagWrite } from '../tagger';
@@ -85,7 +85,10 @@ export async function loadFiles(ids: string[]): Promise<StudioFile[]> {
 				trackNumber: (t.track as number) || null,
 				trackTotal: (t.totalTracks as number) || null,
 				discNumber: (t.discNumber as number) || null,
-				genre: (first(t.genre) as string) ?? null,
+				genre:
+					Array.isArray(t.genre) && t.genre.length
+						? t.genre.join('; ')
+						: ((t.genre as string) ?? null),
 				comment: (first(t.comment) as string) ?? null
 			}
 		});
@@ -110,7 +113,7 @@ const num = (v: unknown) => {
 const str = (v: unknown) =>
 	v === undefined ? undefined : v === null || String(v).trim() === '' ? null : String(v).trim();
 
-export async function saveChanges(changes: SaveChange[]) {
+export async function saveChanges(changes: SaveChange[], opts: { organize?: boolean } = {}) {
 	const rows = new Map(
 		db
 			.select({ id: schema.libraryFiles.id, path: schema.libraryFiles.path })
@@ -126,6 +129,7 @@ export async function saveChanges(changes: SaveChange[]) {
 	);
 	const images = new Map<string, { data: Uint8Array; mime: string } | null>();
 	const written: string[] = [];
+	const savedIds: string[] = [];
 	const errors: { id: string; error: string }[] = [];
 
 	for (const c of changes) {
@@ -148,7 +152,12 @@ export async function saveChanges(changes: SaveChange[]) {
 				trackNumber: num(t.trackNumber),
 				trackTotal: num(t.trackTotal),
 				discNumber: num(t.discNumber),
-				genre: str(t.genre),
+				genre:
+					t.genre === undefined
+						? undefined
+						: (str(t.genre)
+								?.split(/\s*;\s*/)
+								.filter(Boolean) ?? null),
 				comment: str(t.comment),
 				lyrics: c.lyrics,
 				mbRecordingId: c.mb?.recordingId,
@@ -166,12 +175,18 @@ export async function saveChanges(changes: SaveChange[]) {
 				.values({ kind: 'retag', fromPath: file, toPath: file, detail: c })
 				.run();
 			written.push(file);
+			savedIds.push(c.id);
 		} catch (err) {
 			errors.push({ id: c.id, error: (err as Error).message });
 		}
 	}
 	await reindexFiles(written);
-	return { saved: written.length, errors };
+	// Tags drive the folder layout: re-file saved files so album/artist changes move them too.
+	let moved = 0;
+	if (opts.organize && savedIds.length) {
+		moved = (await organize(savedIds, getSettings().pipeline.pathTemplate, false)).moved;
+	}
+	return { saved: written.length, moved, errors };
 }
 
 /** Artwork from an uploaded image, applied to several files. */
@@ -232,20 +247,22 @@ export async function organize(ids: string[], template: string, dryRun: boolean)
 			genre: r.genre
 		});
 		let to = path.join(root, `${rel}.${r.format ?? path.extname(r.path).slice(1)}`);
-		if (to !== r.path) {
+		// Case-only differences are the same file on case-insensitive disks: leave those alone.
+		const same = to === r.path || samePath(to, r.path);
+		if (!same) {
 			const ext = path.extname(to);
 			const base = to.slice(0, -ext.length);
-			for (let i = 2; (fs.existsSync(to) && to !== r.path) || taken.has(to); i++)
+			for (let i = 2; (fs.existsSync(to) && !samePath(to, r.path)) || taken.has(to); i++)
 				to = `${base} (${i})${ext}`;
 		}
 		taken.add(to);
-		return { id: r.id, from: r.path, to, changed: to !== r.path };
+		return { id: r.id, from: r.path, to, changed: !same };
 	});
 	if (dryRun) return { plan, moved: 0 };
 
 	let moved = 0;
 	for (const p of plan.filter((p) => p.changed)) {
-		moveFile(p.from, p.to);
+		p.to = moveFile(p.from, p.to);
 		db.insert(schema.fileOps).values({ kind: 'move', fromPath: p.from, toPath: p.to }).run();
 		db.update(schema.libraryFiles)
 			.set({ path: p.to, relPath: path.relative(root, p.to) })

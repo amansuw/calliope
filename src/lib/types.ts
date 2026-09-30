@@ -117,7 +117,7 @@ export interface BinaryStatus {
 
 export interface LibraryStatus {
 	scanning: boolean;
-	phase: 'idle' | 'walking' | 'reading' | 'hashing' | 'analyzing' | 'done';
+	phase: 'idle' | 'walking' | 'reading' | 'hashing' | 'analyzing' | 'tagging' | 'done';
 	processed: number;
 	total: number;
 	current: string | null;

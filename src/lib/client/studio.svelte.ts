@@ -39,6 +39,22 @@ export interface MbStaged {
 const norm = (v: Value | undefined) =>
 	v === undefined || v === null || v === '' ? null : typeof v === 'number' ? v : String(v);
 
+function readPref(key: string, fallback: boolean): boolean {
+	try {
+		const v = localStorage.getItem(`calliope:${key}`);
+		return v === null ? fallback : v === 'true';
+	} catch {
+		return fallback;
+	}
+}
+function writePref(key: string, value: boolean) {
+	try {
+		localStorage.setItem(`calliope:${key}`, String(value));
+	} catch {
+		/* storage unavailable */
+	}
+}
+
 class Studio {
 	files = $state<StudioFile[]>([]);
 	/** Staged tag edits per file */
@@ -49,6 +65,8 @@ class Studio {
 	focusId = $state<string | null>(null);
 	loading = $state(false);
 	saving = $state(false);
+	/** Re-file saved files to match the folder template (remembered per browser) */
+	organizeOnSave = $state(readPref('studio-organize', true));
 	/** Bumped after saves so artwork thumbnails refetch */
 	artVersion = $state(0);
 
@@ -161,10 +179,11 @@ class Studio {
 		if (!changes.length) return;
 		this.saving = true;
 		try {
-			const res = await api.post<{ saved: number; errors: { id: string; error: string }[] }>(
-				'/api/studio/save',
-				{ changes }
-			);
+			const res = await api.post<{
+				saved: number;
+				moved: number;
+				errors: { id: string; error: string }[];
+			}>('/api/studio/save', { changes, organize: this.organizeOnSave });
 			const failed = new Set(res.errors.map((e) => e.id));
 			const done = changes.map((c) => c.id).filter((id) => !failed.has(id));
 			// Reload saved files from disk so the grid shows what was actually written
@@ -176,7 +195,15 @@ class Studio {
 			toasts.push({
 				level: res.errors.length ? 'warning' : 'success',
 				title: `Saved ${res.saved} file${res.saved === 1 ? '' : 's'}`,
-				message: res.errors.map((e) => e.error).join('\n') || undefined
+				message:
+					[
+						res.moved
+							? `Moved ${res.moved} file${res.moved === 1 ? '' : 's'} to match the folder template.`
+							: '',
+						...res.errors.map((e) => e.error)
+					]
+						.filter(Boolean)
+						.join('\n') || undefined
 			});
 			void library.load(true);
 		} finally {
@@ -192,3 +219,7 @@ class Studio {
 }
 
 export const studio = new Studio();
+
+$effect.root(() => {
+	$effect(() => writePref('studio-organize', studio.organizeOnSave));
+});

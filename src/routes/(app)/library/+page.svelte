@@ -14,6 +14,7 @@
 		Rows3,
 		Search,
 		SlidersHorizontal,
+		Sparkles,
 		WandSparkles,
 		X
 	} from '@lucide/svelte';
@@ -37,6 +38,7 @@
 	} from '$lib/library-filter';
 	import Artwork from '$lib/components/Artwork.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
+	import AutoTagDialog from '$lib/components/library/AutoTagDialog.svelte';
 	import TrackDetail from '$lib/components/library/TrackDetail.svelte';
 	import VirtualList from '$lib/components/VirtualList.svelte';
 
@@ -58,6 +60,7 @@
 	let selected = $state(new Set<string>());
 	let lastClicked = -1;
 	let detailId = $state<string | null>(null);
+	let autoTagIds = $state<string[] | null>(null);
 
 	onMount(() => {
 		library.load();
@@ -565,6 +568,9 @@
 			<button class="btn btn-sm btn-violet" onclick={() => openInStudio([...selected])}
 				><WandSparkles class="h-3 w-3" /> Edit tags</button
 			>
+			<button class="btn btn-sm btn-violet" onclick={() => (autoTagIds = [...selected])}
+				><Sparkles class="h-3 w-3" /> Auto-tag</button
+			>
 			<button class="btn btn-sm btn-ghost" onclick={() => (selected = new Set())}>Clear</button>
 		</div>
 	</div>
@@ -575,5 +581,10 @@
 		id={detailId}
 		onclose={() => (detailId = null)}
 		onstudio={(id) => openInStudio([id])}
+		onautotag={(id) => (autoTagIds = [id])}
 	/>
+{/if}
+
+{#if autoTagIds}
+	<AutoTagDialog ids={autoTagIds} onclose={() => (autoTagIds = null)} />
 {/if}

@@ -37,10 +37,12 @@ const Body = z.object({
 				lyrics: z.string().nullish()
 			})
 		)
-		.max(2000)
+		.max(2000),
+	/** Move saved files to match the folder template */
+	organize: z.boolean().default(true)
 });
 
 export const POST = handler(async (event) => {
-	const { changes } = await body(event, Body);
-	return json(await saveChanges(changes));
+	const { changes, organize } = await body(event, Body);
+	return json(await saveChanges(changes, { organize }));
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ExternalLink, ListEnd, Play, WandSparkles, X } from '@lucide/svelte';
+	import { ExternalLink, ListEnd, Play, Sparkles, WandSparkles, X } from '@lucide/svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { api } from '$lib/client/api';
 	import { ago, bytes, duration } from '$lib/client/format';
@@ -9,8 +9,14 @@
 	let {
 		id,
 		onclose,
-		onstudio
-	}: { id: string; onclose: () => void; onstudio: (id: string) => void } = $props();
+		onstudio,
+		onautotag
+	}: {
+		id: string;
+		onclose: () => void;
+		onstudio: (id: string) => void;
+		onautotag: (id: string) => void;
+	} = $props();
 
 	interface Detail {
 		id: string;
@@ -109,6 +115,11 @@
 					><WandSparkles class="h-3.5 w-3.5" /> Edit</button
 				>
 			</div>
+			<button
+				class="btn btn-sm btn-ghost mt-2 w-full !text-violet-glow"
+				onclick={() => onautotag(d!.id)}
+				><Sparkles class="h-3.5 w-3.5" /> Auto-tag from MusicBrainz</button
+			>
 
 			<dl class="mt-5 grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-[12.5px]">
 				{#each [['Album artist', d.albumArtist], ['Track', d.trackNumber ? `${d.trackNumber}${d.trackTotal ? ` / ${d.trackTotal}` : ''}${d.discNumber ? ` · disc ${d.discNumber}` : ''}` : null], ['Genre', d.genre], ['Duration', duration(d.durationMs)], ['Format', `${(d.format ?? '').toUpperCase()}${d.codec && d.codec.toLowerCase() !== d.format?.toLowerCase() ? ` · ${d.codec}` : ''}${d.lossless ? ' · lossless' : ''}`], ['Bitrate', d.bitrate ? `${d.bitrate} kbps` : null], ['Sample rate', d.sampleRate ? `${(d.sampleRate / 1000).toFixed(1)} kHz${d.bitsPerSample ? ` · ${d.bitsPerSample}-bit` : ''}${d.channels ? ` · ${d.channels}ch` : ''}` : null], ['Loudness', d.loudness != null ? `${d.loudness} dBFS RMS` : null], ['Size', bytes(d.size)], ['ISRC', d.isrc], ['MusicBrainz', d.mbRecordingId], ['Lyrics', d.hasLyrics ? 'Embedded' : 'None'], ['Added', ago(d.addedAt)]] as [label, value] (label)}

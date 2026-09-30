@@ -1,163 +1,180 @@
 <script lang="ts">
-	import { AudioLines, Check, LoaderCircle, Search, Sparkles } from '@lucide/svelte';
+	import { AudioLines, Check, Disc3, LoaderCircle, Search, Sparkles } from '@lucide/svelte';
 	import { api } from '$lib/client/api';
-	import { duration } from '$lib/client/format';
 	import { studio, type StudioFile } from '$lib/client/studio.svelte';
 	import { toasts } from '$lib/client/toasts.svelte';
 
-	interface Release {
-		id: string;
-		title: string;
-		date: string | null;
-		year: number | null;
-		country: string | null;
-		status: string | null;
-		primaryType: string | null;
-		secondaryTypes: string[];
-		releaseGroupId: string | null;
-		albumArtist: string | null;
-		trackNumber: number | null;
-		trackCount: number | null;
-		discNumber: number | null;
-	}
-	interface Candidate {
+	type Kind =
+		'album' | 'ep' | 'single' | 'soundtrack' | 'compilation' | 'live' | 'bootleg' | 'other';
+	interface AlbumOption {
+		key: string;
 		recordingId: string;
 		title: string;
 		artist: string;
 		artistId: string | null;
 		durationMs: number | null;
-		score: number;
-		releases: Release[];
-		source: 'search' | 'acoustid';
+		releaseId: string;
+		releaseGroupId: string | null;
+		album: string;
+		albumArtist: string | null;
+		year: number | null;
+		country: string | null;
+		trackNumber: number | null;
+		trackTotal: number | null;
+		discNumber: number | null;
+		kind: Kind;
+		confidence: number;
+		verified: boolean;
+		coverThumb: string;
+	}
+	interface Enrichment {
+		recordingId: string;
+		releaseId: string | null;
+		artistId: string | null;
+		album: string | null;
+		trackTotal: number | null;
+		genres: string[];
+		artworkUrl: string | null;
+		confidence: number;
+		verified: boolean;
 	}
 
-	let candidates = $state<Candidate[]>([]);
-	let busy = $state<'search' | 'identify' | 'auto' | null>(null);
-	let withArt = $state(true);
-	let autoProgress = $state({ done: 0, total: 0, matched: 0 });
+	let options = $state<AlbumOption[]>([]);
+	let notes = $state<string[]>([]);
 	let forId = $state<string | null>(null);
+	let busy = $state<'find' | 'auto' | string | null>(null);
+	let showAll = $state(false);
+	let autoProgress = $state({ done: 0, total: 0, matched: 0 });
+	let replaceArt = $state(true);
 
 	const file = $derived(studio.focused);
+	const SHOWN = 6;
+	const MAIN_KINDS: Kind[] = ['album', 'ep', 'single', 'soundtrack'];
+	const main = $derived(options.filter((o) => MAIN_KINDS.includes(o.kind)));
+	const other = $derived(options.filter((o) => !MAIN_KINDS.includes(o.kind)));
+	const visible = $derived(showAll ? [...main, ...other] : main.slice(0, SHOWN));
 
-	async function search(f: StudioFile) {
-		busy = 'search';
+	const KIND_LABEL: Record<Kind, string> = {
+		album: 'Album',
+		ep: 'EP',
+		single: 'Single',
+		soundtrack: 'Soundtrack',
+		compilation: 'Compilation',
+		live: 'Live',
+		bootleg: 'Bootleg',
+		other: 'Other'
+	};
+	const staged = (f: StudioFile) => ({
+		title: studio.value(f, 'title') ? String(studio.value(f, 'title')) : undefined,
+		artist: studio.value(f, 'artist') ? String(studio.value(f, 'artist')).split(';')[0] : undefined
+	});
+
+	async function find(f: StudioFile) {
+		busy = 'find';
 		forId = f.id;
+		showAll = false;
 		try {
-			candidates = await api.post<Candidate[]>('/api/studio/musicbrainz', {
-				title: String(studio.value(f, 'title') ?? ''),
-				artist: studio.value(f, 'artist') ? String(studio.value(f, 'artist')).split(';')[0] : null,
-				album: studio.value(f, 'album') ? String(studio.value(f, 'album')) : null,
-				durationMs: f.durationMs
+			const res = await api.post<{ options: AlbumOption[]; notes: string[] }>(
+				'/api/studio/options',
+				{ id: f.id, ...staged(f) }
+			);
+			options = res.options;
+			notes = res.notes;
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function use(f: StudioFile, o: AlbumOption) {
+		busy = o.key;
+		try {
+			const extras = await api.post<{
+				year: number | null;
+				genres: string[];
+				artworkUrl: string | null;
+			}>('/api/studio/extras', {
+				releaseId: o.releaseId,
+				releaseGroupId: o.releaseGroupId,
+				year: o.year,
+				artistId: o.artistId
 			});
+			studio.set(f.id, 'title', o.title);
+			studio.set(f.id, 'artist', o.artist);
+			studio.set(f.id, 'album', o.album);
+			studio.set(f.id, 'albumArtist', o.albumArtist ?? o.artist);
+			studio.set(f.id, 'year', extras.year ?? o.year);
+			studio.set(f.id, 'trackNumber', o.trackNumber);
+			studio.set(f.id, 'trackTotal', o.trackTotal);
+			studio.set(f.id, 'discNumber', o.discNumber);
+			if (extras.genres.length) studio.set(f.id, 'genre', extras.genres.join('; '));
+			if (extras.artworkUrl) studio.artwork[f.id] = extras.artworkUrl;
+			studio.mb[f.id] = {
+				recordingId: o.recordingId,
+				releaseId: o.releaseId,
+				artistId: o.artistId,
+				label: `${o.artist} — ${o.album}`
+			};
 		} finally {
 			busy = null;
 		}
 	}
 
-	async function identify(f: StudioFile) {
-		busy = 'identify';
-		forId = f.id;
-		try {
-			candidates = await api.post<Candidate[]>('/api/studio/identify', { id: f.id });
-			if (!candidates.length)
-				toasts.push({
-					level: 'info',
-					title: 'No acoustic match',
-					message: 'AcoustID has no fingerprint for this recording.'
-				});
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function apply(f: StudioFile, c: Candidate, r: Release | null) {
-		studio.set(f.id, 'title', c.title);
-		studio.set(f.id, 'artist', c.artist);
-		if (r) {
-			studio.set(f.id, 'album', r.title);
-			studio.set(f.id, 'albumArtist', r.albumArtist ?? c.artist);
-			if (r.year) studio.set(f.id, 'year', r.year);
-			if (r.trackNumber) studio.set(f.id, 'trackNumber', r.trackNumber);
-			if (r.trackCount) studio.set(f.id, 'trackTotal', r.trackCount);
-			if (r.discNumber) studio.set(f.id, 'discNumber', r.discNumber);
-		}
-		studio.mb[f.id] = {
-			recordingId: c.recordingId,
-			releaseId: r?.id ?? null,
-			artistId: c.artistId,
-			label: `${c.artist} — ${r?.title ?? c.title}`
-		};
-		if (r && withArt && !f.hasArtwork) {
-			const { url } = await api
-				.post<{ url: string | null }>(
-					'/api/studio/coverart',
-					{ releaseId: r.id, releaseGroupId: r.releaseGroupId },
-					{ quiet: true }
-				)
-				.catch(() => ({ url: null }));
-			if (url) studio.artwork[f.id] = url;
-		}
-	}
-
-	/** Search each target and stage the top result only when it's unambiguous. */
+	/** Same matching as the pipeline and library Auto-tag; results are staged for review. */
 	async function autoMatch() {
 		busy = 'auto';
 		const targets = [...studio.targets];
 		autoProgress = { done: 0, total: targets.length, matched: 0 };
 		try {
 			for (const f of targets) {
-				const title = String(studio.value(f, 'title') ?? '');
-				if (!title) {
-					autoProgress.done++;
-					continue;
-				}
-				const list = await api
-					.post<Candidate[]>(
-						'/api/studio/musicbrainz',
-						{
-							title,
-							artist: studio.value(f, 'artist')
-								? String(studio.value(f, 'artist')).split(';')[0]
-								: null,
-							durationMs: f.durationMs
-						},
-						{ quiet: true }
-					)
-					.catch(() => []);
-				const top = list[0];
-				const durOk =
-					!f.durationMs || !top?.durationMs || Math.abs(top.durationMs - f.durationMs) < 7000;
-				if (
-					top &&
-					top.score >= 0.9 &&
-					durOk &&
-					(list.length === 1 || list[1].score < top.score || list[1].title === top.title)
-				) {
-					const album = String(studio.value(f, 'album') ?? '').toLowerCase();
-					await apply(
-						f,
-						top,
-						top.releases.find((r) => album && r.title.toLowerCase() === album) ??
-							top.releases[0] ??
-							null
-					);
+				const res = await api
+					.post<{
+						enrichment: Enrichment | null;
+						patch: Record<string, string | number | null> | null;
+					}>('/api/studio/enrich', { id: f.id, ...staged(f) }, { quiet: true })
+					.catch(() => ({ enrichment: null, patch: null }));
+				const e = res.enrichment;
+				if (e && res.patch && e.confidence >= 0.65) {
+					for (const k of [
+						'title',
+						'artist',
+						'album',
+						'albumArtist',
+						'year',
+						'trackNumber',
+						'discNumber',
+						'genre'
+					] as const) {
+						if (res.patch[k] !== undefined && res.patch[k] !== null)
+							studio.set(f.id, k, res.patch[k]);
+					}
+					if (e.trackTotal) studio.set(f.id, 'trackTotal', e.trackTotal);
+					if (e.artworkUrl && (replaceArt || !f.hasArtwork)) studio.artwork[f.id] = e.artworkUrl;
+					studio.mb[f.id] = {
+						recordingId: e.recordingId,
+						releaseId: e.releaseId,
+						artistId: e.artistId,
+						label: e.album ?? ''
+					};
 					autoProgress.matched++;
 				}
 				autoProgress.done++;
 			}
 			toasts.push({
 				level: 'success',
-				title: `Auto-matched ${autoProgress.matched} of ${autoProgress.total}`,
-				message: 'Review the highlighted cells, then save.'
+				title: `Matched ${autoProgress.matched} of ${autoProgress.total}`,
+				message: 'Changes are staged — review the highlighted cells, then save.'
 			});
 		} finally {
 			busy = null;
 		}
 	}
 
-	const releaseLabel = (r: Release) =>
-		[r.primaryType, ...r.secondaryTypes].filter(Boolean).join(' · ') +
-		(r.status && r.status !== 'Official' ? ` · ${r.status}` : '');
+	const confTone = (c: number) =>
+		c >= 0.85
+			? 'border-ok/30 bg-ok/10 text-ok'
+			: c >= 0.65
+				? 'border-warn/30 bg-warn/10 text-warn'
+				: 'border-white/10 text-ink-400';
 </script>
 
 <div class="mb-4 rounded-lg border border-white/6 bg-white/[0.02] p-3">
@@ -165,14 +182,14 @@
 		<div>
 			<div class="text-[13px] font-medium text-ink-100">Auto-match</div>
 			<div class="text-xs text-ink-400">
-				Stage confident MusicBrainz matches for {studio.targets.length} file{studio.targets
-					.length === 1
+				Stage album, track numbers, year, genres and cover art for {studio.targets.length} file{studio
+					.targets.length === 1
 					? ''
 					: 's'}.
 			</div>
 		</div>
 		<button
-			class="btn btn-violet btn-sm"
+			class="btn btn-sm btn-violet"
 			onclick={autoMatch}
 			disabled={!!busy || !studio.targets.length}
 		>
@@ -181,11 +198,11 @@
 		</button>
 	</div>
 	<label class="mt-2 flex items-center gap-1.5 text-xs text-ink-300">
-		<input type="checkbox" class="accent-amber" bind:checked={withArt} /> Also fetch cover art for files
-		without it
+		<input type="checkbox" class="accent-amber" bind:checked={replaceArt} /> Replace existing artwork
+		with the album cover
 	</label>
 	{#if busy === 'auto'}<p class="mt-1 text-[11px] text-ink-500">
-			MusicBrainz allows one request per second — this takes a moment.
+			MusicBrainz allows one request per second — a few seconds per track.
 		</p>{/if}
 </div>
 
@@ -194,69 +211,77 @@
 	<div class="mb-2 truncate text-[13px] text-ink-100">
 		{studio.value(file, 'artist') ?? '?'} — {studio.value(file, 'title') ?? '?'}
 	</div>
-	<div class="flex gap-2">
-		<button class="btn btn-sm flex-1" onclick={() => search(file)} disabled={!!busy}>
-			{#if busy === 'search'}<LoaderCircle class="h-3 w-3 animate-spin" />{:else}<Search
-					class="h-3 w-3"
-				/>{/if} Search tags
-		</button>
-		<button
-			class="btn btn-sm flex-1"
-			onclick={() => identify(file)}
-			disabled={!!busy}
-			title="Fingerprint the audio with Chromaprint and look it up on AcoustID"
-		>
-			{#if busy === 'identify'}<LoaderCircle class="h-3 w-3 animate-spin" />{:else}<AudioLines
-					class="h-3 w-3"
-				/>{/if} Identify audio
-		</button>
-	</div>
+	<button class="btn btn-sm w-full" onclick={() => find(file)} disabled={!!busy}>
+		{#if busy === 'find'}<LoaderCircle class="h-3 w-3 animate-spin" />{:else}<Search
+				class="h-3 w-3"
+			/>{/if} Find albums
+	</button>
 
-	{#if forId === file.id && candidates.length}
-		<div class="mt-3 space-y-2">
-			{#each candidates.slice(0, 8) as c (c.recordingId)}
-				<div class="rounded-lg border border-white/6 bg-ink-900/60 p-2.5">
-					<div class="flex items-start justify-between gap-2">
-						<div class="min-w-0">
-							<div class="truncate text-[13px] text-ink-50">{c.title}</div>
-							<div class="truncate text-xs text-ink-300">{c.artist} · {duration(c.durationMs)}</div>
-						</div>
-						<span
-							class="chip shrink-0 {c.score >= 0.9
-								? 'border-ok/30 bg-ok/10 text-ok'
-								: 'border-white/10 text-ink-300'}"
+	{#if forId === file.id}
+		{#each notes as n (n)}<p class="mt-2 text-[11px] text-warn">{n}</p>{/each}
+		{#if options.length}
+			<div class="mt-3 space-y-2">
+				{#each visible as o, i (o.key)}
+					<button
+						class="flex w-full items-center gap-3 rounded-lg border p-2 text-left transition hover:border-white/15
+							{i === 0 && !showAll ? 'border-violet/40 bg-violet/[0.06]' : 'border-white/6 bg-ink-900/60'}
+							{MAIN_KINDS.includes(o.kind) ? '' : 'opacity-70'}"
+						onclick={() => use(file, o)}
+						disabled={!!busy}
+					>
+						<div
+							class="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-white/8 bg-ink-800"
 						>
-							{c.source === 'acoustid' ? 'Audio' : 'Score'}
-							{Math.round(c.score * 100)}%
-						</span>
-					</div>
-					<div class="mt-2 space-y-1">
-						{#each c.releases.slice(0, 4) as r (r.id)}
-							<button
-								class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-white/5"
-								onclick={() => apply(file, c, r)}
-							>
-								<Check class="h-3 w-3 shrink-0 text-ink-500" />
-								<span class="min-w-0 flex-1 truncate text-ink-200">{r.title}</span>
-								<span class="shrink-0 text-ink-500"
-									>{r.year ?? ''}
-									{r.country ?? ''} · {releaseLabel(r)}{r.trackNumber
-										? ` · #${r.trackNumber}`
-										: ''}</span
-								>
-							</button>
-						{:else}
-							<button
-								class="w-full rounded-md px-2 py-1 text-left text-xs text-ink-300 hover:bg-white/5"
-								onclick={() => apply(file, c, null)}>Apply title/artist only</button
-							>
-						{/each}
-					</div>
-				</div>
-			{/each}
-		</div>
-	{:else if forId === file.id && !busy}
-		<p class="mt-3 text-xs text-ink-400">No candidates.</p>
+							<img
+								src={o.coverThumb}
+								alt=""
+								loading="lazy"
+								class="h-full w-full object-cover"
+								onerror={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+							/>
+							<Disc3 class="absolute inset-0 -z-10 m-auto h-5 w-5 text-ink-500" />
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-1.5">
+								<span class="truncate text-[13px] text-ink-50">{o.album}</span>
+								{#if i === 0 && !showAll}<span
+										class="chip shrink-0 border-violet/40 bg-violet/15 text-violet-glow">Best</span
+									>{/if}
+							</div>
+							<div class="truncate text-[11px] text-ink-400">
+								{KIND_LABEL[o.kind]}{o.year ? ` · ${o.year}` : ''}{o.country
+									? ` · ${o.country}`
+									: ''}{o.trackNumber
+									? ` · #${o.trackNumber}${o.trackTotal ? `/${o.trackTotal}` : ''}`
+									: ''}
+							</div>
+						</div>
+						<div class="flex shrink-0 flex-col items-end gap-1">
+							{#if busy === o.key}<LoaderCircle class="h-3.5 w-3.5 animate-spin text-ink-300" />
+							{:else}<span class="chip {confTone(o.confidence)}"
+									>{Math.round(o.confidence * 100)}%</span
+								>{/if}
+							{#if o.verified}<span
+									class="chip border-ok/30 bg-ok/5 text-ok"
+									title="Confirmed by audio fingerprint"><AudioLines class="h-3 w-3" /> Audio</span
+								>{/if}
+						</div>
+					</button>
+				{/each}
+			</div>
+			{#if !showAll && (main.length > SHOWN || other.length)}
+				<button class="btn btn-ghost btn-sm mt-2 w-full" onclick={() => (showAll = true)}>
+					Show {main.length - Math.min(main.length, SHOWN) + other.length} more (live, compilations, bootlegs…)
+				</button>
+			{/if}
+			<p class="hint flex items-center gap-1">
+				<Check class="h-3 w-3" /> Click an album to stage its tags and cover art.
+			</p>
+		{:else if !busy}
+			<p class="mt-3 text-xs text-ink-400">
+				No albums found. Check the title and artist, then try again.
+			</p>
+		{/if}
 	{/if}
 {:else}
 	<p class="text-xs text-ink-400">Click a row to look it up.</p>

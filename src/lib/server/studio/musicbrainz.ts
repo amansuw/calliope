@@ -20,17 +20,21 @@ function throttled<T>(fn: () => Promise<T>): Promise<T> {
 	return next;
 }
 
-async function mb<T>(path: string, params: Record<string, string>): Promise<T> {
-	return throttled(async () => {
-		const url = `${MB}${path}?${new URLSearchParams({ ...params, fmt: 'json' })}`;
-		const res = await fetch(url, {
+async function mb<T>(path: string, params: Record<string, string>, attempt = 0): Promise<T> {
+	const res = await throttled(() =>
+		fetch(`${MB}${path}?${new URLSearchParams({ ...params, fmt: 'json' })}`, {
 			headers: { 'User-Agent': UA, Accept: 'application/json' },
 			signal: AbortSignal.timeout(20_000)
-		});
-		if (res.status === 503) throw new Error('MusicBrainz is rate limiting — try again in a moment');
-		if (!res.ok) throw new Error(`MusicBrainz returned ${res.status}`);
-		return (await res.json()) as T;
-	});
+		})
+	);
+	// 503 = rate limited; back off once rather than failing a whole batch
+	if (res.status === 503 && attempt < 2) {
+		await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+		return mb<T>(path, params, attempt + 1);
+	}
+	if (res.status === 503) throw new Error('MusicBrainz is rate limiting — try again in a moment');
+	if (!res.ok) throw new Error(`MusicBrainz returned ${res.status}`);
+	return (await res.json()) as T;
 }
 
 export interface MbRelease {
@@ -138,28 +142,37 @@ export function toCandidate(
 
 const esc = (s: string) => s.replace(/([+\-&|!(){}[\]^"~*?:\\/])/g, '\\$1');
 
-export async function searchRecordings(q: {
+export interface RecordingQuery {
 	artist?: string | null;
 	title: string;
 	album?: string | null;
 	durationMs?: number | null;
-}): Promise<MbCandidate[]> {
+	/** Only recordings that appear on official studio albums (no live/compilation releases) */
+	albumOnly?: boolean;
+}
+
+export async function searchRecordings(q: RecordingQuery): Promise<MbCandidate[]> {
 	const parts = [`recording:"${esc(q.title)}"`];
 	if (q.artist) parts.push(`artist:"${esc(q.artist)}"`);
+	const base = parts.length;
 	if (q.album) parts.push(`release:"${esc(q.album)}"`);
 	if (q.durationMs) {
 		const s = Math.round(q.durationMs);
 		parts.push(`dur:[${s - 5000} TO ${s + 5000}]`);
 	}
+	const filters = q.albumOnly
+		? ' AND status:official AND primarytype:album AND NOT secondarytype:live AND NOT secondarytype:compilation'
+		: '';
+	const limit = q.albumOnly ? '25' : '15';
 	let data = await mb<{ recordings: RawRecording[] }>('/recording', {
-		query: parts.join(' AND '),
-		limit: '15'
+		query: parts.join(' AND ') + filters,
+		limit
 	});
 	// Album/duration constraints can be too strict for mis-tagged files: relax once.
-	if (!data.recordings.length && (q.album || q.durationMs)) {
+	if (!data.recordings.length && parts.length > base) {
 		data = await mb<{ recordings: RawRecording[] }>('/recording', {
-			query: parts.slice(0, 2).join(' AND '),
-			limit: '15'
+			query: parts.slice(0, base).join(' AND ') + filters,
+			limit
 		});
 	}
 	const out = data.recordings.map((r) => toCandidate(r, 'search'));
@@ -167,6 +180,33 @@ export async function searchRecordings(q: {
 	const diff = (c: MbCandidate) =>
 		q.durationMs && c.durationMs ? Math.abs(c.durationMs - q.durationMs) : 60_000;
 	return out.sort((a, b) => b.score - a.score || diff(a) - diff(b));
+}
+
+export interface MbGenre {
+	name: string;
+	count: number;
+}
+
+/** Release group details: original release date and community genres. */
+export async function releaseGroupDetails(id: string) {
+	const rg = await mb<{
+		id: string;
+		title: string;
+		'first-release-date'?: string;
+		'primary-type'?: string;
+		genres?: MbGenre[];
+	}>(`/release-group/${id}`, { inc: 'genres' });
+	return {
+		id: rg.id,
+		title: rg.title,
+		firstReleaseDate: rg['first-release-date'] || null,
+		genres: rg.genres ?? []
+	};
+}
+
+export async function artistGenres(id: string): Promise<MbGenre[]> {
+	const a = await mb<{ genres?: MbGenre[] }>(`/artist/${id}`, { inc: 'genres' });
+	return a.genres ?? [];
 }
 
 export async function lookupRecordings(ids: string[]): Promise<RawRecording[]> {
@@ -181,15 +221,22 @@ export async function lookupRecordings(ids: string[]): Promise<RawRecording[]> {
 	return out;
 }
 
-/** Front cover URL on the Cover Art Archive, trying the release then its release group. */
+/**
+ * Front cover URL on the Cover Art Archive. The release group's cover is the canonical album
+ * art; a specific release's scan (a regional pressing, a promo) is the fallback — or the other
+ * way round when `prefer` is 'release'.
+ */
 export async function findCoverArt(
 	releaseId: string,
-	releaseGroupId?: string | null
+	releaseGroupId?: string | null,
+	prefer: 'release' | 'release-group' = 'release'
 ): Promise<string | null> {
-	for (const url of [
-		`https://coverartarchive.org/release/${releaseId}/front-1200`,
-		releaseGroupId ? `https://coverartarchive.org/release-group/${releaseGroupId}/front-1200` : null
-	]) {
+	const release = `https://coverartarchive.org/release/${releaseId}/front-1200`;
+	const group = releaseGroupId
+		? `https://coverartarchive.org/release-group/${releaseGroupId}/front-1200`
+		: null;
+	const order = prefer === 'release-group' ? [group, release] : [release, group];
+	for (const url of order) {
 		if (!url) continue;
 		const res = await fetch(url, {
 			method: 'HEAD',

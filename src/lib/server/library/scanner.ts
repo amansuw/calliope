@@ -165,7 +165,8 @@ function rowFromMeta(
 		trackTotal: int(tags.totalTracks),
 		discNumber: int(tags.discNumber),
 		year: int(tags.year),
-		genre: first(tags.genre),
+		// Multi-value genres are indexed as "A; B" (the same form the pipeline and Studio use)
+		genre: tags.genre?.length ? tags.genre.join('; ') : null,
 		isrc: first(tags.isrc),
 		hasArtwork: hasCoverArt,
 		hasLyrics: !!lyrics?.some((l) => l.text?.trim()),
@@ -212,6 +213,37 @@ export async function reindexFiles(paths: string[]) {
 	void hashPending();
 }
 
+/**
+ * One-time upgrade: early builds stored paths relative to the working directory. Make them
+ * absolute (matching the walk, which now starts from an absolute root) instead of re-importing.
+ */
+function fixRelativePaths() {
+	const rel = db
+		.select({ id: schema.libraryFiles.id, path: schema.libraryFiles.path })
+		.from(schema.libraryFiles)
+		.all()
+		.filter((r) => !path.isAbsolute(r.path));
+	if (!rel.length) return;
+	db.transaction((tx) => {
+		for (const r of rel)
+			tx.update(schema.libraryFiles)
+				.set({ path: path.resolve(r.path) })
+				.where(eq(schema.libraryFiles.id, r.id))
+				.run();
+		const tracks = tx
+			.select({ id: schema.tracks.id, filePath: schema.tracks.filePath })
+			.from(schema.tracks)
+			.all();
+		for (const t of tracks)
+			if (t.filePath && !path.isAbsolute(t.filePath))
+				tx.update(schema.tracks)
+					.set({ filePath: path.resolve(t.filePath) })
+					.where(eq(schema.tracks.id, t.id))
+					.run();
+	});
+	console.log(`[library] converted ${rel.length} stored paths to absolute`);
+}
+
 let running: Promise<void> | null = null;
 
 export function scanLibrary(opts: { full?: boolean } = {}): Promise<void> {
@@ -239,6 +271,7 @@ async function doScan({ full = false }: { full?: boolean }) {
 	try {
 		if (!fs.existsSync(root)) throw new Error(`Library folder not found: ${root}`);
 
+		fixRelativePaths();
 		const files: { path: string; size: number; mtimeMs: number }[] = [];
 		await walk(root, files);
 

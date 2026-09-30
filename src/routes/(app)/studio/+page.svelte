@@ -95,6 +95,13 @@
 		<button class="btn btn-ghost" onclick={() => studio.revert()} disabled={!studio.dirtyIds.length}
 			><Undo2 class="h-3.5 w-3.5" /> Revert</button
 		>
+		<label
+			class="flex items-center gap-1.5 px-1 text-xs text-ink-300"
+			title="After saving, rename and move files so their folders follow the template in Settings › Library & paths"
+		>
+			<input type="checkbox" class="accent-amber" bind:checked={studio.organizeOnSave} /> Move files to
+			match folder template
+		</label>
 		<button
 			class="btn btn-primary"
 			onclick={() => studio.save()}

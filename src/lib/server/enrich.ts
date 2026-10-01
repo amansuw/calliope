@@ -240,6 +240,28 @@ async function tryAcoustic(q: EnrichQuery, log: (line: string) => void): Promise
 	}
 }
 
+/**
+ * Clean title, artists, album and track number for a song known only by rough text (a video
+ * title, say). Text search only and no extras: cheap enough to run before looking for a file.
+ */
+export async function identifyRecording(q: Omit<EnrichQuery, 'file'>) {
+	if (!q.artist || !q.title) return null;
+	const query = { title: q.title, artist: q.artist, durationMs: q.durationMs };
+	const pick =
+		pickCandidate(q, await searchRecordings({ ...query, albumOnly: true })) ??
+		pickCandidate(q, await searchRecordings(query));
+	if (!pick) return null;
+	const release = pickRelease(pick, q.album);
+	return {
+		title: asciiPunctuation(pick.title),
+		artist: asciiPunctuation(pick.artist),
+		artists: pick.artists.map(asciiPunctuation),
+		album: release ? asciiPunctuation(release.title) : null,
+		trackNumber: release?.trackNumber ?? null,
+		durationMs: pick.durationMs
+	};
+}
+
 export async function enrich(
 	q: EnrichQuery,
 	log: (line: string) => void = () => {}

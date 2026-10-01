@@ -160,10 +160,16 @@ export function guessTags(file: string): {
 	const album = stripBrackets(pa ? pa[2] : parent).replace(/^\d{4}\s*[-–—.]?\s*/, '') || null;
 
 	let title = rest;
-	const m = rest.match(/^(.+?)\s+[-–—]\s+(.+)$/);
-	if (m) {
-		artist = m[1].trim();
-		title = m[2].trim();
+	const parts = rest.split(/\s+[-–—]\s+/);
+	// "Artist - Album - 01 - Title": the number sits in the middle
+	const at = trackNumber === null ? parts.findIndex((p) => /^\d{1,3}$/.test(p)) : -1;
+	if (at >= 0 && at < parts.length - 1 && Number(parts[at]) > 0) {
+		trackNumber = Number(parts[at]);
+		title = parts.slice(at + 1).join(' - ');
+		if (at > 0) artist = parts[0].trim();
+	} else if (parts.length > 1) {
+		artist = parts[0].trim();
+		title = parts.slice(1).join(' - ').trim();
 	}
 	return { title: title || name, artist: artist || 'Unknown Artist', album, trackNumber };
 }

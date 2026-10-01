@@ -4,16 +4,32 @@ import { and, eq, ne, or } from 'drizzle-orm';
 import { FORMAT_PRESETS, type FormatPresetId } from '$lib/formats';
 import { decodeRef, encodeRef, fileParts, type SlskRef } from '$lib/soulseek';
 import type { TrackStatus } from '$lib/status';
-import { matchKey, splitArtistTitle } from '$lib/text';
+import { matchKey, normalize, primaryArtist, similarity, splitArtistTitle } from '$lib/text';
 import { db, schema } from '../db';
-import { applyEnrichment, enrich, splitGenres, type Enrichment } from '../enrich';
+import {
+	applyEnrichment,
+	enrich,
+	identifyRecording,
+	splitGenres,
+	type Enrichment
+} from '../enrich';
 import type { Track } from '../db/schema';
 import { fetchLyrics } from '../integrations/lyrics';
 import { findInLibrary } from '../library/lookup';
 import { getSettings } from '../settings';
 import { soulseek } from '../soulseek';
 import { findMatch } from '../sources/match';
-import { rankLossless, soulseekQuery, type SlskPick } from '../sources/soulseek-match';
+import {
+	baseAlbum,
+	describeReport,
+	matchLossless,
+	plainTitle,
+	searchPlan,
+	type MatchReport,
+	type SlskPick,
+	type SlskTarget
+} from '../sources/soulseek-match';
+import { acoustidReady, identifyFile } from '../studio/acoustid';
 import { spotifyTrack } from '../sources/spotify';
 import { ytVideoInfo } from '../sources/youtube';
 import { fetchImage, readMetadata, writeArtwork, writeTags } from '../tagger';
@@ -63,58 +79,147 @@ async function downloadSoulseek(id: string, ref: SlskRef, ctx: WorkerContext, wa
 /** Automatic lookups only use peers that can send now, and don't wait long for them. */
 const AUTO_WAIT_MS = 90_000;
 const AUTO_TRIES = 3;
+/** Tracks of one album repeat the same album searches: answer those from memory for a while. */
+const REUSE_SEARCH_MS = 10 * 60_000;
+/** Folder that last delivered a track of an album, tried first for the album's other tracks. */
+const albumSources = new Map<string, { user: string; dir: string }>();
 
 /**
- * Find the same recording as a real lossless file on Soulseek and fetch it. Returns null when
+ * What to look for on Soulseek. Spotify metadata is clean; a YouTube video title is not
+ * ("Song ft. Someone (Official Video)"), so MusicBrainz supplies the proper title, album and
+ * track number first.
+ */
+async function soulseekTarget(t: Track): Promise<SlskTarget> {
+	const base: SlskTarget = {
+		title: plainTitle(t.title!),
+		artist: t.artist!,
+		artists: t.artists ?? undefined,
+		durationMs: t.durationMs,
+		album: t.album,
+		trackNumber: t.trackNumber
+	};
+	if (t.provider === 'spotify' || !getSettings().pipeline.enrichMusicBrainz) return base;
+	const mb = await identifyRecording({
+		artist: t.artist!,
+		title: base.title,
+		durationMs: t.durationMs
+	}).catch(() => null);
+	if (!mb) return base;
+	return {
+		title: mb.title,
+		artist: mb.artists[0] ?? mb.artist,
+		artists: mb.artists.length ? mb.artists : undefined,
+		// Shared files are album rips: the album recording's length is the one to compare with
+		durationMs: mb.durationMs ?? t.durationMs,
+		album: mb.album ?? t.album,
+		trackNumber: mb.trackNumber ?? t.trackNumber
+	};
+}
+
+/** The audio itself says which recording this is. Null when it agrees or cannot tell. */
+async function fingerprintProblem(file: string, target: SlskTarget): Promise<string | null> {
+	if (!(await acoustidReady().catch(() => false))) return null;
+	const known = (await identifyFile(file).catch(() => [])).filter((c) => c.score >= 0.85);
+	if (!known.length) return null;
+	const names = target.artists?.length ? target.artists : [target.artist];
+	const same = known.some(
+		(c) =>
+			similarity(target.title, c.title) >= 0.5 &&
+			names.some(
+				(a) => primaryArtist(a) === primaryArtist(c.artist) || similarity(a, c.artist) >= 0.5
+			)
+	);
+	return same ? null : `its audio fingerprint is ${known[0].artist} — ${known[0].title}`;
+}
+
+/**
+ * Find the same recording as a real lossless file on Soulseek and fetch it: several searches from
+ * precise to wide, then a download that is checked against the audio itself. Returns null when
  * there is nothing suitable or every transfer failed — the caller then uses the other source.
  */
 async function fetchLossless(
 	t: Track,
 	ctx: WorkerContext
 ): Promise<{ file: string; pick: SlskPick } | null> {
-	const target = {
-		title: t.title!,
-		artist: t.artist!,
-		artists: t.artists ?? undefined,
-		durationMs: t.durationMs
-	};
 	ctx.stage('matching');
-	ctx.log(`Searching Soulseek for a lossless copy of "${t.artist} - ${t.title}"`);
-	let picks: SlskPick[];
-	try {
-		const hits = await soulseek.search(soulseekQuery(target));
-		picks = rankLossless(hits, target, { freeOnly: true, maxBytes: MAX_SOULSEEK_BYTES });
-		if (!picks.length) {
-			ctx.log(`No lossless match on Soulseek (${hits.length} results)`);
+	const target = await soulseekTarget(t);
+	checkAbort(ctx.signal);
+	ctx.log(
+		`Looking on Soulseek for a lossless copy of "${target.artist} - ${target.title}"` +
+			(target.album
+				? ` (album ${target.album}${target.trackNumber ? `, track ${target.trackNumber}` : ''})`
+				: '')
+	);
+
+	const album = baseAlbum(target.album);
+	const albumKey = album ? `${normalize(target.artist)}|${normalize(album)}` : null;
+	const prefer = albumKey ? (albumSources.get(albumKey) ?? null) : null;
+	let plan = searchPlan(target);
+	// A folder is known to hold this album: look there first
+	if (prefer)
+		plan = [...plan].sort(
+			(a, b) => Number(b.label.includes('album')) - Number(a.label.includes('album'))
+		);
+
+	const tried = new Set<string>();
+	for (const [i, step] of plan.entries()) {
+		checkAbort(ctx.signal);
+		ctx.stage('matching');
+		let report: MatchReport;
+		try {
+			const hits = await soulseek.search(step.query, { reuseMs: REUSE_SEARCH_MS });
+			report = matchLossless(hits, target, {
+				freeOnly: true,
+				maxBytes: MAX_SOULSEEK_BYTES,
+				exclude: tried,
+				prefer
+			});
+			ctx.log(
+				`Soulseek search ${i + 1}/${plan.length} (${step.label}) "${step.query}": ${hits.length} results, ${describeReport(report)}` +
+					(report.picks.length
+						? ` → ${report.picks.length} match${report.picks.length === 1 ? '' : 'es'}`
+						: '')
+			);
+		} catch (err) {
+			checkAbort(ctx.signal);
+			ctx.log(`Soulseek search failed: ${(err as Error).message}`);
 			return null;
 		}
-	} catch (err) {
-		checkAbort(ctx.signal);
-		ctx.log(`Soulseek search failed: ${(err as Error).message}`);
-		return null;
-	}
 
-	for (const pick of picks.slice(0, AUTO_TRIES)) {
-		checkAbort(ctx.signal);
-		ctx.stage('downloading');
-		ctx.log(`Soulseek match ${Math.round(pick.score * 100)}%: ${pick.user} — ${pick.name}`);
-		try {
-			const file = await downloadSoulseek(t.id, pick.ref, ctx, AUTO_WAIT_MS);
-			// Trust the audio, not the file name: it must be lossless and the right length
-			const props = (await readMetadata(file).catch(() => null))?.properties;
-			const ms = props ? Math.round((props.durationMs ?? props.duration * 1000) || 0) : 0;
-			const problem = !props?.isLossless
-				? 'not lossless audio'
-				: t.durationMs && ms && Math.abs(ms - t.durationMs) > 7000
-					? `length differs (${Math.round(ms / 1000)}s, expected ${Math.round(t.durationMs / 1000)}s)`
-					: null;
-			if (!problem) return { file, pick };
-			ctx.log(`Rejected ${pick.name}: ${problem}`);
-		} catch (err) {
-			if (ctx.signal.aborted) throw err;
-			ctx.log(`Soulseek transfer failed: ${(err as Error).message}`);
+		for (const pick of report.picks) {
+			if (tried.size >= AUTO_TRIES) break;
+			checkAbort(ctx.signal);
+			tried.add(`${pick.user}\u0000${pick.ref.file}`);
+			ctx.stage('downloading');
+			ctx.log(
+				`Soulseek match ${Math.round(pick.score * 100)}% (${['title', ...pick.evidence].join(', ')}): ${pick.user} — ${pick.name}`
+			);
+			try {
+				const file = await downloadSoulseek(t.id, pick.ref, ctx, AUTO_WAIT_MS);
+				// Trust the audio, not the file name: lossless, the right length, the right recording
+				const props = (await readMetadata(file).catch(() => null))?.properties;
+				const ms = props ? Math.round((props.durationMs ?? props.duration * 1000) || 0) : 0;
+				const problem = !props?.isLossless
+					? 'not lossless audio'
+					: target.durationMs && ms && Math.abs(ms - target.durationMs) > 7000
+						? `length differs (${Math.round(ms / 1000)}s, expected ${Math.round(target.durationMs / 1000)}s)`
+						: await fingerprintProblem(file, target);
+				if (!problem) {
+					if (albumKey) {
+						albumSources.delete(albumKey);
+						albumSources.set(albumKey, { user: pick.user, dir: pick.dir });
+						if (albumSources.size > 200) albumSources.delete(albumSources.keys().next().value!);
+					}
+					return { file, pick };
+				}
+				ctx.log(`Rejected ${pick.name}: ${problem}`);
+			} catch (err) {
+				if (ctx.signal.aborted) throw err;
+				ctx.log(`Soulseek transfer failed: ${(err as Error).message}`);
+			}
+			cleanupStaging(t.id);
 		}
-		cleanupStaging(t.id);
+		if (tried.size >= AUTO_TRIES) break;
 	}
 	ctx.log('No usable lossless copy on Soulseek');
 	return null;

@@ -7,6 +7,7 @@ import { getSettings } from './settings';
 
 /** The network throttles (and can ban) clients that search too fast. */
 const SEARCH_GAP_MS = 2500;
+const RECENT_SEARCHES = 40;
 
 export interface SlskDownloadHooks {
 	signal: AbortSignal;
@@ -26,6 +27,8 @@ class Soulseek {
 	private error: string | null = null;
 	private searches: Promise<unknown> = Promise.resolve();
 	private lastSearchAt = 0;
+	/** Recent results by query, so the tracks of one album don't repeat the same search */
+	private recent = new Map<string, { at: number; hits: SlskHit[] }>();
 
 	private config() {
 		const s = getSettings().soulseek;
@@ -123,14 +126,27 @@ class Soulseek {
 		return `Logged in as ${c.username} — listening for peers on port ${c.listenPort}`;
 	}
 
-	/** One search at a time, spaced out. Resolves with everything that arrived within `timeoutMs`. */
-	search(query: string, timeoutMs = 8000): Promise<SlskHit[]> {
+	/**
+	 * One search at a time, spaced out. Resolves with everything that arrived within `timeoutMs`.
+	 * With `reuseMs`, an identical search made that recently is answered from memory.
+	 */
+	search(query: string, opts: { timeoutMs?: number; reuseMs?: number } = {}): Promise<SlskHit[]> {
 		const run = async () => {
+			const cached = this.recent.get(query);
+			if (opts.reuseMs && cached && Date.now() - cached.at < opts.reuseMs) return cached.hits;
 			const client = await this.connect();
 			const wait = this.lastSearchAt + SEARCH_GAP_MS - Date.now();
 			if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 			this.lastSearchAt = Date.now();
-			return (await client.search({ req: query, timeout: timeoutMs })) as SlskHit[];
+			const hits = (await client.search({
+				req: query,
+				timeout: opts.timeoutMs ?? 8000
+			})) as SlskHit[];
+			this.recent.delete(query);
+			this.recent.set(query, { at: Date.now(), hits });
+			while (this.recent.size > RECENT_SEARCHES)
+				this.recent.delete(this.recent.keys().next().value!);
+			return hits;
 		};
 		const result = this.searches.then(run, run);
 		this.searches = result.catch(() => {});

@@ -10,11 +10,21 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-slsk-'));
 const fixture = path.join(tmp, 'fixture.flac');
 
 // The peer transfer is replaced by a local copy: everything after it is the real pipeline.
-const net = vi.hoisted(() => ({ hits: [] as unknown[], youtube: 0, youtubeFails: false }));
+const net = vi.hoisted(() => ({
+	hits: [] as unknown[],
+	/** Results for specific searches; anything else gets `hits` */
+	byQuery: {} as Record<string, unknown[]>,
+	searches: [] as string[],
+	youtube: 0,
+	youtubeFails: false
+}));
 vi.mock('../soulseek', () => ({
 	soulseek: {
 		status: () => ({ enabled: true, configured: true }),
-		search: async () => net.hits,
+		search: async (query: string) => {
+			net.searches.push(query);
+			return net.byQuery[query] ?? net.hits;
+		},
 		download: async (_ref: unknown, dest: string) => fs.copyFileSync(fixture, dest)
 	}
 }));
@@ -97,24 +107,29 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 		expect(fs.readdirSync(path.join(tmp, 'staging'))).toEqual([]);
 	});
 
-	const spotifyTrack = (title: string) => ({
+	const spotifyTrack = (title: string, album: string) => ({
 		provider: 'spotify' as const,
 		spotifyId: title,
 		title,
 		artist: 'Gorillaz',
 		artists: ['Gorillaz'],
-		album: 'Cracker Island (Deluxe)',
+		album,
+		trackNumber: 4,
 		durationMs: 1000,
 		// the same song is downloaded by every test here
 		force: true
 	});
-	const run = async (preferredSource: 'soulseek' | 'ytmusic', formatPreset = 'mp3-320') => {
+	const run = async (
+		preferredSource: 'soulseek' | 'ytmusic',
+		formatPreset = 'mp3-320',
+		album = 'Cracker Island (Deluxe)'
+	) => {
 		const { updateSettings } = await import('../settings');
 		const { pipeline } = await import('./queue');
 		const { getTrack } = await import('./tracks');
 		const { processTrack } = await import('./worker');
 		updateSettings({ pipeline: { preferredSource } });
-		const [track] = pipeline.enqueue([spotifyTrack('Silent Running')], { formatPreset });
+		const [track] = pipeline.enqueue([spotifyTrack('Silent Running', album)], { formatPreset });
 		const log: string[] = [];
 		const error = await processTrack(track, {
 			signal: new AbortController().signal,
@@ -150,11 +165,38 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 
 	it('Soulseek preferred: falls back to YouTube when there is no lossless match', async () => {
 		Object.assign(net, { hits: [otherSong], youtube: 0, youtubeFails: false });
-		const { track, log } = await run('soulseek');
+		const { track, log } = await run('soulseek', 'mp3-320', 'Humanz');
 		expect(net.youtube).toBe(1);
 		expect(track.matchUrl).toBe(YOUTUBE_URL);
-		expect(log).toContain('No lossless match on Soulseek');
+		expect(log).toContain('Soulseek search 1/3 (artist + title) "gorillaz silent running"');
+		expect(log).toContain('1 lossless file — 1 another title');
+		expect(log).toContain('No usable lossless copy on Soulseek');
 		expect(log).toContain('Falling back to YouTube');
+	});
+
+	it('Soulseek preferred: widens the search when the precise one finds nothing', async () => {
+		Object.assign(net, { hits: [], youtube: 0, youtubeFails: false, searches: [] });
+		// shared without the artist in the path: only the title search finds it
+		const bare = {
+			...peerHit,
+			file: 'Discography\\2018 - The Now Now [FLAC]\\04 -Silent Running.flac'
+		};
+		net.byQuery = { 'silent running': [bare] };
+		const { track, log } = await run('soulseek', 'mp3-320', 'The Now Now (Deluxe)');
+		net.byQuery = {};
+		expect(net.searches).toEqual(['gorillaz silent running', 'silent running']);
+		expect(net.youtube).toBe(0);
+		expect(track.matchUrl).toMatch(/^soulseek:peer\//);
+		expect(log).toContain('(title, album, track number, length)');
+	});
+
+	it('looks in the folder that already delivered the album before searching wider', async () => {
+		// the first test above fetched a "Cracker Island (Deluxe)" track from this peer's folder
+		Object.assign(net, { hits: [peerHit], youtube: 0, youtubeFails: false, searches: [] });
+		const { track, log } = await run('soulseek');
+		expect(net.searches).toEqual(['gorillaz cracker island']);
+		expect(log).toContain('Soulseek search 1/4 (artist + album) "gorillaz cracker island"');
+		expect(track.matchUrl).toMatch(/^soulseek:peer\//);
 	});
 
 	it('YouTube preferred: does not touch Soulseek while YouTube works', async () => {

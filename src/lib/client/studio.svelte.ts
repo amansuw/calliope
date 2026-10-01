@@ -77,6 +77,8 @@ class Studio {
 			...Object.keys(this.mb)
 		])
 	]);
+	/** Selected rows that have staged changes */
+	dirtySelected = $derived(this.dirtyIds.filter((id) => this.selected.includes(id)));
 	/** Rows tools act on: the selection, or everything when nothing is selected */
 	targets = $derived(
 		this.selected.length ? this.files.filter((f) => this.selected.includes(f.id)) : this.files

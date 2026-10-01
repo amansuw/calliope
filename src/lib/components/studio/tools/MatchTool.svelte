@@ -12,8 +12,9 @@
 	import { fade, scale } from 'svelte/transition';
 	import { portal } from '$lib/client/portal';
 	import { api } from '$lib/client/api';
-	import { studio, type StudioFile } from '$lib/client/studio.svelte';
+	import { studio, type Field, type StudioFile, type Value } from '$lib/client/studio.svelte';
 	import { toasts } from '$lib/client/toasts.svelte';
+	import MatchReview, { type Proposal } from '../MatchReview.svelte';
 
 	type Kind =
 		'album' | 'ep' | 'single' | 'soundtrack' | 'compilation' | 'live' | 'bootleg' | 'other';
@@ -145,12 +146,84 @@
 		}
 	}
 
-	/** Same matching as the pipeline and library Auto-tag; results are staged for review. */
+	/** Auto-match stages matches at or above this confidence; weaker ones wait for a manual review. */
+	const REVIEW_BELOW = 0.7;
+	const PATCH_FIELDS = [
+		'title',
+		'artist',
+		'album',
+		'albumArtist',
+		'year',
+		'trackNumber',
+		'discNumber',
+		'genre'
+	] as const;
+	let review = $state<Proposal[]>([]);
+	let reviewed = { applied: 0, total: 0 };
+
+	function propose(
+		f: StudioFile,
+		e: Enrichment,
+		patch: Record<string, string | number | null>
+	): Proposal {
+		const tags: Partial<Record<Field, Value>> = {};
+		for (const k of PATCH_FIELDS) {
+			if (patch[k] !== undefined && patch[k] !== null) tags[k] = patch[k];
+		}
+		if (e.trackTotal) tags.trackTotal = e.trackTotal;
+		const wantsArt = autoArt === 'replace' || (autoArt === 'missing' && !f.hasArtwork);
+		return {
+			file: f,
+			confidence: e.confidence,
+			verified: e.verified,
+			tags,
+			artworkUrl: wantsArt ? e.artworkUrl : null,
+			mb: {
+				recordingId: e.recordingId,
+				releaseId: e.releaseId,
+				artistId: e.artistId,
+				label: e.album ?? ''
+			}
+		};
+	}
+
+	function stage(p: Proposal) {
+		for (const [k, v] of Object.entries(p.tags)) studio.set(p.file.id, k as Field, v ?? null);
+		if (p.artworkUrl) studio.artwork[p.file.id] = p.artworkUrl;
+		studio.mb[p.file.id] = p.mb;
+	}
+
+	function resolveReview(items: Proposal[], apply: boolean) {
+		if (apply) {
+			items.forEach(stage);
+			reviewed.applied += items.length;
+		}
+		const ids = new Set(items.map((p) => p.file.id));
+		review = review.filter((p) => !ids.has(p.file.id));
+		if (!review.length) closeReview();
+	}
+
+	function closeReview() {
+		review = [];
+		const { applied, total } = reviewed;
+		if (!total) return;
+		reviewed = { applied: 0, total: 0 };
+		toasts.push({
+			level: applied ? 'success' : 'info',
+			title: `Applied ${applied} of ${total} reviewed match${total === 1 ? '' : 'es'}`,
+			message: applied
+				? 'Changes are staged — nothing is written until you save.'
+				: 'Skipped files are unchanged — use Identify to pick an album by hand.'
+		});
+	}
+
+	/** Same matching as the pipeline and library Auto-tag; confident results are staged, the rest reviewed. */
 	async function autoMatch() {
 		busy = 'auto';
 		const targets = [...studio.targets];
 		autoProgress = { done: 0, total: targets.length, matched: 0 };
 		const unmatched: string[] = [];
+		const uncertain: Proposal[] = [];
 		try {
 			for (const f of targets) {
 				const res = await api
@@ -159,31 +232,12 @@
 						patch: Record<string, string | number | null> | null;
 					}>('/api/studio/enrich', { id: f.id, ...staged(f) }, { quiet: true })
 					.catch(() => ({ enrichment: null, patch: null }));
-				const e = res.enrichment;
-				if (e && res.patch && e.confidence >= 0.65) {
-					for (const k of [
-						'title',
-						'artist',
-						'album',
-						'albumArtist',
-						'year',
-						'trackNumber',
-						'discNumber',
-						'genre'
-					] as const) {
-						if (res.patch[k] !== undefined && res.patch[k] !== null)
-							studio.set(f.id, k, res.patch[k]);
-					}
-					if (e.trackTotal) studio.set(f.id, 'trackTotal', e.trackTotal);
-					if (e.artworkUrl && (autoArt === 'replace' || (autoArt === 'missing' && !f.hasArtwork)))
-						studio.artwork[f.id] = e.artworkUrl;
-					studio.mb[f.id] = {
-						recordingId: e.recordingId,
-						releaseId: e.releaseId,
-						artistId: e.artistId,
-						label: e.album ?? ''
-					};
-					autoProgress.matched++;
+				if (res.enrichment && res.patch) {
+					const p = propose(f, res.enrichment, res.patch);
+					if (p.confidence >= REVIEW_BELOW) {
+						stage(p);
+						autoProgress.matched++;
+					} else uncertain.push(p);
 				} else {
 					unmatched.push(String(studio.value(f, 'title') ?? f.relPath));
 				}
@@ -191,11 +245,18 @@
 			}
 			const { matched, total } = autoProgress;
 			toasts.push({
-				level: matched === total ? 'success' : matched ? 'warning' : 'error',
-				title: matched ? `Matched ${matched} of ${total}` : 'No confident matches',
+				level: matched === total ? 'success' : matched || uncertain.length ? 'warning' : 'error',
+				title: matched
+					? `Matched ${matched} of ${total}`
+					: uncertain.length
+						? 'No confident matches'
+						: 'No matches found',
 				message:
 					[
 						matched ? 'Changes are staged — review the highlighted cells, then save.' : '',
+						uncertain.length
+							? `${uncertain.length} match${uncertain.length === 1 ? '' : 'es'} below ${Math.round(REVIEW_BELOW * 100)}% need${uncertain.length === 1 ? 's' : ''} your review.`
+							: '',
 						unmatched.length
 							? `Not matched: ${unmatched.slice(0, 5).join(', ')}${unmatched.length > 5 ? '…' : ''} — use Identify to pick an album by hand.`
 							: ''
@@ -203,6 +264,8 @@
 						.filter(Boolean)
 						.join('\n') || undefined
 			});
+			reviewed = { applied: 0, total: uncertain.length };
+			review = uncertain;
 		} finally {
 			busy = null;
 		}
@@ -211,7 +274,7 @@
 	const confTone = (c: number) =>
 		c >= 0.85
 			? 'border-ok/30 bg-ok/10 text-ok'
-			: c >= 0.65
+			: c >= REVIEW_BELOW
 				? 'border-warn/30 bg-warn/10 text-warn'
 				: 'border-white/10 text-ink-400';
 </script>
@@ -374,6 +437,16 @@
 {/if}
 
 <svelte:window onkeydown={(e) => preview && e.key === 'Escape' && (preview = null)} />
+
+{#if review.length}
+	<MatchReview
+		items={review}
+		threshold={REVIEW_BELOW}
+		onapply={(items) => resolveReview(items, true)}
+		onskip={(items) => resolveReview(items, false)}
+		onclose={closeReview}
+	/>
+{/if}
 
 {#if preview}
 	{@const p = preview}

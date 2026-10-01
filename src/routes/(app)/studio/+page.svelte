@@ -92,8 +92,19 @@
 				disabled={!!studio.dirtyIds.length}><Trash2 class="h-3.5 w-3.5" /> Clear</button
 			>
 		{/if}
-		<button class="btn btn-ghost" onclick={() => studio.revert()} disabled={!studio.dirtyIds.length}
-			><Undo2 class="h-3.5 w-3.5" /> Revert</button
+		{#if studio.dirtySelected.length && studio.dirtySelected.length < studio.dirtyIds.length}
+			<button
+				class="btn btn-ghost"
+				onclick={() => studio.revert(studio.dirtySelected)}
+				title="Discard staged changes on the selected rows only"
+				><Undo2 class="h-3.5 w-3.5" /> Revert selected {studio.dirtySelected.length}</button
+			>
+		{/if}
+		<button
+			class="btn btn-ghost"
+			onclick={() => studio.revert()}
+			disabled={!studio.dirtyIds.length}
+			title="Discard every staged change"><Undo2 class="h-3.5 w-3.5" /> Revert all</button
 		>
 		<label
 			class="flex items-center gap-1.5 px-1 text-xs text-ink-300"

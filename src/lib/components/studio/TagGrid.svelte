@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ImageOff, X } from '@lucide/svelte';
+	import { ImageOff, Undo2, X } from '@lucide/svelte';
 	import { FIELDS, studio, type StudioFile } from '$lib/client/studio.svelte';
 	import Artwork from '../Artwork.svelte';
 
@@ -52,7 +52,7 @@
 				{#each FIELDS as f (f.key)}<th
 						class="border-b border-white/5 px-1 py-2 font-medium {f.width}">{f.label}</th
 					>{/each}
-				<th class="w-8 border-b border-white/5"></th>
+				<th class="w-16 border-b border-white/5"></th>
 			</tr>
 		</thead>
 		<tbody>
@@ -131,7 +131,17 @@
 							/>
 						</td>
 					{/each}
-					<td class="border-b border-white/[0.04] pr-2">
+					<td class="border-b border-white/[0.04] pr-2 whitespace-nowrap">
+						{#if studio.dirtyIds.includes(file.id)}
+							<button
+								class="btn btn-ghost btn-icon btn-sm text-amber-glow"
+								title="Revert this file's staged changes"
+								aria-label="Revert this file's staged changes"
+								onclick={() => studio.revert([file.id])}
+							>
+								<Undo2 class="h-3 w-3" />
+							</button>
+						{/if}
 						<button
 							class="btn btn-ghost btn-icon btn-sm opacity-0 group-hover:opacity-100"
 							title="Remove from working set"

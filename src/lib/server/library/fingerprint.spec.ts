@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeRaw, encodeRaw, similarity } from './fingerprint';
+import { decodeRaw, encodeRaw, similarity, toPrint } from './fingerprint';
 
 function rand(seed: number, n: number) {
 	const out: number[] = [];
@@ -18,15 +18,31 @@ describe('fingerprint similarity', () => {
 		expect([...decodeRaw(encodeRaw(a))]).toEqual(a);
 	});
 
+	const print = (frames: number[]) => toPrint(Uint32Array.from(frames));
+
 	it('scores identical and shifted audio high', () => {
-		const A = Uint32Array.from(a);
+		const A = print(a);
 		expect(similarity(A, A)).toBe(1);
-		expect(similarity(A, Uint32Array.from([...rand(9, 3), ...a]))).toBeGreaterThan(0.99);
+		expect(similarity(A, print([...rand(9, 3), ...a]))).toBeGreaterThan(0.99);
+	});
+
+	it('lines up copies that start many seconds apart, in either order', () => {
+		const intro = print([...rand(9, 120), ...a]);
+		expect(similarity(print(a), intro)).toBeGreaterThan(0.99);
+		expect(similarity(intro, print(a))).toBeGreaterThan(0.99);
 	});
 
 	it('scores lightly corrupted copies high and unrelated audio low', () => {
 		const noisy = a.map((v, i) => (i % 5 === 0 ? v ^ 0b1011 : v));
-		expect(similarity(Uint32Array.from(a), Uint32Array.from(noisy))).toBeGreaterThan(0.95);
-		expect(similarity(Uint32Array.from(a), Uint32Array.from(rand(2, 400)))).toBeLessThan(0.65);
+		expect(similarity(print(a), print(noisy))).toBeGreaterThan(0.95);
+		expect(similarity(print(a), print([...rand(9, 120), ...noisy]))).toBeGreaterThan(0.95);
+		expect(similarity(print(a), print(rand(2, 400)))).toBeLessThan(0.65);
+	});
+
+	it('does not match on silence alone', () => {
+		const silence = new Array(300).fill(0);
+		const one = print([...silence, ...rand(3, 400)]);
+		const other = print([...silence, ...rand(4, 400)]);
+		expect(similarity(one, other)).toBeLessThan(0.82);
 	});
 });

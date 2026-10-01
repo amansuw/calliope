@@ -753,6 +753,13 @@
 						<span class="text-xs text-ink-400">min</span>
 					</div>
 				</Field>
+				<Field
+					row
+					label="Prefer hi-res"
+					hint="When several peers share the same track, take a 24-bit or high sample rate copy over the CD rip. Most music only exists in CD quality (16-bit / 44.1 kHz), and hi-res files are several times larger."
+				>
+					<Switch bind:checked={draft.soulseek.preferHiRes} label="Prefer hi-res" />
+				</Field>
 				{#if testResult.soulseek}<p
 						class="py-2 text-xs {testResult.soulseek.ok ? 'text-ok' : 'text-bad'}"
 					>

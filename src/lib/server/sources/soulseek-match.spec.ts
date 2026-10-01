@@ -146,6 +146,20 @@ describe('matchLossless', () => {
 		expect(free.busy).toBe(1);
 	});
 
+	it('takes the hi-res copy first when asked to, even if the peer reports no format', () => {
+		const file = `${album}04 - Wish You Were Here.flac`;
+		const hits = [
+			hit('cd', file),
+			hit('hires', file, { attribs: { 1: 334, 4: 48000, 5: 24 } }),
+			hit('big', file, { size: 120 * MB, attribs: { 1: 334 } }),
+			hit('other-song', `${album}01 - Shine On You Crazy Diamond.flac`, {
+				attribs: { 1: 334, 4: 96000, 5: 24 }
+			})
+		];
+		expect(users(hits, target, { preferHiRes: true })).toEqual(['hires', 'big', 'cd']);
+		expect(users(hits)[0]).toBe('cd');
+	});
+
 	it('puts the folder that already delivered this album first, and skips tried files', () => {
 		const other = 'share\\Pink Floyd\\WYWH\\04 - Wish You Were Here.flac';
 		const hits = [

@@ -172,7 +172,8 @@ async function fetchLossless(
 				freeOnly: true,
 				maxBytes: MAX_SOULSEEK_BYTES,
 				exclude: tried,
-				prefer
+				prefer,
+				preferHiRes: getSettings().soulseek.preferHiRes
 			});
 			ctx.log(
 				`Soulseek search ${i + 1}/${plan.length} (${step.label}) "${step.query}": ${hits.length} results, ${describeReport(report)}` +
@@ -433,7 +434,7 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 				});
 			}
 			ctx.log(
-				`${properties.codec ?? path.extname(file).slice(1)} · ${properties.isLossless ? 'lossless' : `${properties.bitrate ?? '?'} kbps`}${properties.sampleRate ? ` · ${properties.sampleRate / 1000} kHz` : ''}`
+				`${properties.codec ?? path.extname(file).slice(1)} · ${properties.isLossless ? 'lossless' : `${properties.bitrate ?? '?'} kbps`}${properties.sampleRate ? ` · ${properties.bitsPerSample ? `${properties.bitsPerSample}-bit / ` : ''}${properties.sampleRate / 1000} kHz` : ''}`
 			);
 		}
 		// MusicBrainz: studio album, track numbers, original year, genres and real cover art.
@@ -541,6 +542,7 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 				lossless: meta.properties?.isLossless ?? null,
 				bitrate: meta.properties?.bitrate ?? null,
 				sampleRate: meta.properties?.sampleRate ?? null,
+				bitsPerSample: meta.properties?.bitsPerSample || null,
 				channels: meta.properties?.channels ?? null,
 				durationMs: meta.properties ? Math.round(meta.properties.duration * 1000) : t.durationMs,
 				title: t.title,

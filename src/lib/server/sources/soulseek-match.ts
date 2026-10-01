@@ -37,6 +37,17 @@ export interface MatchReport {
 
 const LOSSLESS = new Set(['flac']);
 const MIN_BYTES = 2 * 1024 * 1024;
+/** No 16-bit FLAC averages this much: CD audio is only 1411 kbps before compression. */
+const HI_RES_KBPS = 1500;
+
+/** Above CD quality, going by what the peer reports or, failing that, a size no CD rip reaches. */
+function isHiRes(h: SlskHit): boolean {
+	const rate = h.attribs[4];
+	const depth = h.attribs[5];
+	if (rate || depth) return (depth ?? 16) > 16 || (rate ?? 44100) > 48000;
+	const sec = h.attribs[1];
+	return !!sec && (h.size * 8) / sec / 1000 > HI_RES_KBPS;
+}
 
 const words = (s: string) =>
 	normalize(s)
@@ -101,6 +112,8 @@ export function matchLossless(
 		exclude?: Set<string>;
 		/** Folder that already delivered a track of this album: its files go first */
 		prefer?: { user: string; dir: string } | null;
+		/** Between equally good matches, take the copy above CD quality instead of the CD rip */
+		preferHiRes?: boolean;
 	} = {}
 ): MatchReport {
 	const minScore = opts.minScore ?? 0.7;
@@ -201,7 +214,7 @@ export function matchLossless(
 			score: Math.min(1, score),
 			freeSlot: h.slots,
 			evidence,
-			hiRes: (h.attribs[5] ?? 16) > 16 || (h.attribs[4] ?? 44100) > 48000,
+			hiRes: isHiRes(h),
 			speed: h.speed ?? 0,
 			queue: h.queueLength ?? 0,
 			preferred: !!opts.prefer && opts.prefer.user === h.user && opts.prefer.dir === dir
@@ -214,6 +227,7 @@ export function matchLossless(
 			(a, b) =>
 				Number(b.preferred) - Number(a.preferred) ||
 				bucket(b.score) - bucket(a.score) ||
+				(opts.preferHiRes ? Number(b.hiRes) - Number(a.hiRes) : 0) ||
 				b.evidence.length - a.evidence.length ||
 				Number(b.freeSlot) - Number(a.freeSlot) ||
 				Number(a.hiRes) - Number(b.hiRes) ||

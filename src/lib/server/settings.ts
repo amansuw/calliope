@@ -102,7 +102,9 @@ export const SettingsSchema = z.object({
 			/** Port other users connect to. Results and transfers work best when it is reachable. */
 			listenPort: z.number().int().min(1024).max(65535).default(2234),
 			/** Give up on a peer that keeps a download queued this long (retried later) */
-			queueTimeoutMinutes: z.number().int().min(1).max(720).default(10)
+			queueTimeoutMinutes: z.number().int().min(1).max(720).default(10),
+			/** Between equally good matches, take a copy above CD quality (24-bit) over the CD rip */
+			preferHiRes: z.boolean().default(false)
 		})
 		.prefault({}),
 	library: z

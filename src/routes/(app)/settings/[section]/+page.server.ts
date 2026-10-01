@@ -1,5 +1,7 @@
 import { error } from '@sveltejs/kit';
+import { isNotNull } from 'drizzle-orm';
 import { checkBinaries } from '$lib/server/binaries';
+import { db, schema } from '$lib/server/db';
 import { env } from '$lib/server/env';
 import { checkDir } from '$lib/server/paths';
 import { publicSettings } from '$lib/server/settings';
@@ -22,6 +24,19 @@ export const load = async ({ params }) => {
 						quarantineDir: checkDir(settings.paths.quarantineDir)
 					}
 				: null,
+		// Sources with their own format ignore the default chosen here: say so next to it
+		formatOverrides:
+			params.section === 'pipeline'
+				? db
+						.select({
+							id: schema.sources.id,
+							name: schema.sources.name,
+							formatPreset: schema.sources.formatPreset
+						})
+						.from(schema.sources)
+						.where(isNotNull(schema.sources.formatPreset))
+						.all()
+				: [],
 		legacyDb: env.legacyDb ?? null,
 		dataDir: env.dataDir
 	};

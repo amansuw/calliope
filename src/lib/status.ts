@@ -23,6 +23,12 @@ export const ACTIVE_STATUSES: readonly TrackStatus[] = [
 ];
 export const FINISHED_STATUSES: readonly TrackStatus[] = ['done', 'failed', 'skipped', 'cancelled'];
 
+export const PROVIDER_LABELS: Record<string, string> = {
+	spotify: 'Spotify',
+	youtube: 'YouTube',
+	soulseek: 'Soulseek'
+};
+
 export const STAGE_LABELS: Record<TrackStatus, string> = {
 	queued: 'Queued',
 	resolving: 'Resolving',

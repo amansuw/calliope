@@ -124,7 +124,7 @@
 	{/if}
 	{#if expanded}
 		<div transition:slide={{ duration: 180 }} class="border-t border-white/5 p-2">
-			{#if track.matchUrl}
+			{#if track.matchUrl?.startsWith('http')}
 				<a
 					href={track.matchUrl}
 					target="_blank"

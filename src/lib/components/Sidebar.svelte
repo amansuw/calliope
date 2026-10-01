@@ -8,6 +8,7 @@
 		ListMusic,
 		LogOut,
 		Radio,
+		Search,
 		Settings2,
 		WandSparkles
 	} from '@lucide/svelte';
@@ -34,7 +35,8 @@
 					icon: Radio,
 					badge: live.sources.size,
 					live: [...live.sources.values()].some((s) => s.syncing)
-				}
+				},
+				{ href: '/soulseek', label: 'Soulseek', icon: Search, badge: 0, live: false }
 			]
 		},
 		{

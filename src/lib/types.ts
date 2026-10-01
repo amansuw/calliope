@@ -7,7 +7,7 @@ export interface TrackDTO {
 	status: TrackStatus;
 	priority: number;
 	position: number;
-	provider: 'spotify' | 'youtube';
+	provider: 'spotify' | 'youtube' | 'soulseek';
 	sourceId: string | null;
 	requestedUrl: string | null;
 	spotifyId: string | null;
@@ -33,6 +33,16 @@ export interface TrackDTO {
 	createdAt: number;
 	startedAt: number | null;
 	finishedAt: number | null;
+}
+
+export interface SoulseekStatus {
+	enabled: boolean;
+	/** Username and password are filled in */
+	configured: boolean;
+	state: 'offline' | 'connecting' | 'online';
+	username: string;
+	listenPort: number;
+	error: string | null;
 }
 
 export interface SourceDTO {

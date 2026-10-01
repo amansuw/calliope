@@ -89,6 +89,19 @@ export const SettingsSchema = z.object({
 			apiKey: str()
 		})
 		.prefault({}),
+	soulseek: z
+		.object({
+			enabled: z.boolean().default(false),
+			username: str(),
+			password: str(),
+			/** Port other users connect to. Results and transfers work best when it is reachable. */
+			listenPort: z.number().int().min(1024).max(65535).default(2234),
+			/** FLAC downloads look for a real lossless copy here before falling back to YouTube */
+			autoLossless: z.boolean().default(true),
+			/** Give up on a peer that keeps a download queued this long (retried later) */
+			queueTimeoutMinutes: z.number().int().min(1).max(720).default(10)
+		})
+		.prefault({}),
 	library: z
 		.object({
 			scanOnStartup: z.boolean().default(true),
@@ -107,7 +120,8 @@ export const SECRET_FIELDS = [
 	['navidrome', 'password'],
 	['discord', 'webhookUrl'],
 	['discord', 'botToken'],
-	['acoustid', 'apiKey']
+	['acoustid', 'apiKey'],
+	['soulseek', 'password']
 ] as const;
 export const SECRET_MASK = '••••••••';
 

@@ -4,6 +4,7 @@
 	import { api } from '$lib/client/api';
 	import { ago, bytes, duration } from '$lib/client/format';
 	import { player } from '$lib/client/player.svelte';
+	import { PROVIDER_LABELS } from '$lib/status';
 	import Artwork from '../Artwork.svelte';
 
 	let {
@@ -143,12 +144,12 @@
 				<div class="mt-5">
 					<div class="panel-title mb-1.5 !text-[10px]">Downloaded by Calliope</div>
 					<div class="text-xs text-ink-300">
-						From {d.download.provider === 'spotify' ? 'Spotify' : 'YouTube'}
+						From {PROVIDER_LABELS[d.download.provider] ?? d.download.provider}
 						{ago(d.download.finishedAt)}{d.download.matchScore != null
 							? ` · match ${Math.round(d.download.matchScore * 100)}%`
 							: ''}
 					</div>
-					{#if d.download.matchUrl}
+					{#if d.download.matchUrl?.startsWith('http')}
 						<a
 							href={d.download.matchUrl}
 							target="_blank"

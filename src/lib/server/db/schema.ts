@@ -90,7 +90,8 @@ export const tracks = sqliteTable(
 		position: real('position').notNull(),
 		requestedUrl: text('requested_url'),
 		sourceId: text('source_id').references(() => sources.id, { onDelete: 'set null' }),
-		provider: text('provider', { enum: ['spotify', 'youtube'] }).notNull(),
+		// Plain text in SQLite: adding 'soulseek' needed no migration
+		provider: text('provider', { enum: ['spotify', 'youtube', 'soulseek'] }).notNull(),
 		spotifyId: text('spotify_id'),
 		youtubeId: text('youtube_id'),
 		title: text('title'),

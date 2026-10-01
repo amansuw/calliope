@@ -114,7 +114,7 @@
 	// --- integration tests ------------------------------------------------------------
 	let testing = $state<string | null>(null);
 	let testResult = $state<Record<string, { ok: boolean; message: string }>>({});
-	async function test(target: 'spotify' | 'navidrome' | 'discord') {
+	async function test(target: 'spotify' | 'navidrome' | 'discord' | 'soulseek') {
 		if (dirty) await save();
 		testing = target;
 		try {
@@ -324,11 +324,31 @@
 						</button>
 					{/each}
 				</div>
-				{#if draft.pipeline.formatPreset === 'flac'}
+				{#if data.formatOverrides.length}
 					<p class="pb-3 text-xs text-warn/90">
-						YouTube audio is lossy (Opus/AAC ~128–160 kbps). FLAC preserves it exactly but can't add
-						quality back — files are just larger.
+						{data.formatOverrides.length === 1 ? 'This source uses' : 'These sources use'} their own format
+						instead of this one:
+						{#each data.formatOverrides as s, i (s.id)}{i ? ', ' : ''}<a
+								class="underline hover:text-warn"
+								href="/sources/{s.id}"
+								>{s.name} ({FORMAT_PRESETS[s.formatPreset as keyof typeof FORMAT_PRESETS]?.label ??
+									s.formatPreset})</a
+							>{/each}. Set a source's format to Default to follow this setting.
 					</p>
+				{/if}
+				{#if draft.pipeline.formatPreset === 'flac'}
+					{#if draft.soulseek.enabled && draft.soulseek.autoLossless}
+						<p class="pb-3 text-xs text-ink-300">
+							Each track is first looked up on Soulseek for a real lossless copy. When none is found
+							it comes from YouTube, whose audio is lossy — FLAC then only makes that file larger.
+						</p>
+					{:else}
+						<p class="pb-3 text-xs text-warn/90">
+							YouTube audio is lossy (Opus/AAC ~128–160 kbps). FLAC preserves it exactly but can't
+							add quality back — files are just larger. Turn on Soulseek under Integrations to get
+							real lossless files.
+						</p>
+					{/if}
 				{/if}
 			</Section>
 
@@ -596,7 +616,7 @@
 		{:else if data.section === 'integrations'}
 			<Section
 				title="Spotify Web API"
-				description="Optional. Playlists are read from public embed pages without it (first 100 tracks). With credentials, album and track lookups gain album names, track numbers and release dates, and playlists you own list in full."
+				description="Optional. Public playlists are read in full without it. With credentials, album and track lookups gain album names, track numbers and release dates."
 			>
 				{#snippet actions()}
 					<button
@@ -657,6 +677,80 @@
 						class="py-2 text-xs {testResult.navidrome.ok ? 'text-ok' : 'text-bad'}"
 					>
 						{testResult.navidrome.message}
+					</p>{/if}
+			</Section>
+
+			<Section
+				title="Soulseek"
+				description="Search the Soulseek network and download files in their original format, such as real FLAC. Calliope signs in with its own built-in client, so use an account no other Soulseek app is signed in to — one account can only be online in one place."
+			>
+				{#snippet actions()}
+					<button
+						class="btn btn-sm"
+						onclick={() => test('soulseek')}
+						disabled={testing === 'soulseek' || !draft.soulseek.enabled || !draft.soulseek.username}
+					>
+						{#if testing === 'soulseek'}<LoaderCircle class="h-3 w-3 animate-spin" />{/if} Test
+					</button>
+				{/snippet}
+				<Field row label="Enabled"
+					><Switch bind:checked={draft.soulseek.enabled} label="Soulseek" /></Field
+				>
+				<div class="grid gap-x-4 sm:grid-cols-2">
+					<Field label="Username"
+						><input class="input" autocomplete="off" bind:value={draft.soulseek.username} /></Field
+					>
+					<Field label="Password"
+						><input
+							class="input"
+							type="password"
+							autocomplete="new-password"
+							bind:value={draft.soulseek.password}
+						/></Field
+					>
+				</div>
+				<Field
+					row
+					label="Use for FLAC downloads"
+					hint="When a track's format is FLAC, look for the same recording as a real lossless file on Soulseek first, from a peer that can send right away. If none is found the track is downloaded from YouTube as usual."
+					><Switch
+						bind:checked={draft.soulseek.autoLossless}
+						label="Use for FLAC downloads"
+					/></Field
+				>
+				<Field
+					row
+					label="Listening port"
+					hint="Other users connect here to answer searches and send files. Works without it, but forwarding this TCP port on your router (and publishing it in Docker) gives more results."
+				>
+					<input
+						type="number"
+						min="1024"
+						max="65535"
+						class="input !w-24 text-right font-mono"
+						bind:value={draft.soulseek.listenPort}
+					/>
+				</Field>
+				<Field
+					row
+					label="Wait for a queued download"
+					hint="Busy peers put you in a queue. After this long without the transfer starting, the download is dropped and retried later."
+				>
+					<div class="flex items-center gap-2">
+						<input
+							type="number"
+							min="1"
+							max="720"
+							class="input !w-20 text-right font-mono"
+							bind:value={draft.soulseek.queueTimeoutMinutes}
+						/>
+						<span class="text-xs text-ink-400">min</span>
+					</div>
+				</Field>
+				{#if testResult.soulseek}<p
+						class="py-2 text-xs {testResult.soulseek.ok ? 'text-ok' : 'text-bad'}"
+					>
+						{testResult.soulseek.message}
 					</p>{/if}
 			</Section>
 

@@ -40,12 +40,28 @@
 									{FORMAT_PRESETS[t.formatPreset as keyof typeof FORMAT_PRESETS]?.label ??
 										t.formatPreset}{t.bitrate ? ` · ${t.bitrate}k` : ''}
 								</span>
+								{#if t.matchUrl?.startsWith('soulseek:')}
+									<span
+										class="chip border-ok/25 bg-ok/5 text-ok"
+										title="Original file from a Soulseek peer{t.matchTitle
+											? `: ${t.matchTitle}`
+											: ''}">Soulseek</span
+									>
+								{:else if t.formatPreset === 'flac'}
+									<span
+										class="chip border-warn/30 bg-warn/10 text-warn"
+										title="No lossless copy was found, so this FLAC holds YouTube's lossy audio"
+										>from YouTube</span
+									>
+								{/if}
 								{#if t.matchScore != null && t.provider === 'spotify'}
 									<span
 										class="chip {t.matchScore >= lowConfidence
 											? 'border-ok/25 bg-ok/5 text-ok'
 											: 'border-warn/30 bg-warn/10 text-warn'}"
-										title="YouTube match confidence{t.matchTitle ? `: ${t.matchTitle}` : ''}"
+										title="{t.matchUrl?.startsWith('soulseek:')
+											? 'Soulseek'
+											: 'YouTube'} match confidence{t.matchTitle ? `: ${t.matchTitle}` : ''}"
 									>
 										{t.matchScore >= lowConfidence ? 'Match' : 'Check match'}
 										{Math.round(t.matchScore * 100)}%
@@ -82,7 +98,7 @@
 					<div class="flex flex-col items-end gap-1">
 						<span class="text-[11px] whitespace-nowrap text-ink-500">{ago(t.finishedAt)}</span>
 						<div class="flex opacity-0 transition group-hover:opacity-100">
-							{#if t.matchUrl}
+							{#if t.matchUrl?.startsWith('http')}
 								<a
 									class="btn btn-ghost btn-icon btn-sm"
 									href={t.matchUrl}

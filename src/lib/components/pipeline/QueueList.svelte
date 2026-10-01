@@ -5,6 +5,7 @@
 	import { ago, duration } from '$lib/client/format';
 	import { live } from '$lib/client/live.svelte';
 	import { FORMAT_PRESETS } from '$lib/formats';
+	import { PROVIDER_LABELS } from '$lib/status';
 	import type { TrackDTO } from '$lib/types';
 	import Artwork from '../Artwork.svelte';
 	import EmptyState from '../EmptyState.svelte';
@@ -86,7 +87,7 @@
 						{#if t.priority > 0}<ChevronsUp class="h-3.5 w-3.5 shrink-0 text-amber" />{/if}
 					</div>
 					<div class="truncate text-xs text-ink-400">
-						{t.artist ?? (t.provider === 'spotify' ? 'Spotify' : 'YouTube')}
+						{t.artist ?? PROVIDER_LABELS[t.provider]}
 						{#if sourceName(t.sourceId)}<span class="text-ink-500">
 								· from {sourceName(t.sourceId)}</span
 							>{/if}

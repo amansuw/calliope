@@ -21,6 +21,11 @@ Calliope v2: a ground-up rewrite of the original Next.js app on SvelteKit 5, Dri
 - **Tagging:** title, artists, album, album artist, track/disc numbers, year, cover art and
   (synced) lyrics from LRCLIB, written natively with TagLib for MP3, M4A, Opus and FLAC.
 - **Filing:** a folder template engine, e.g. `{albumartist|artist}/{album|Singles}/[{track:02} - ]{title}`.
+- **Soulseek:** optional built-in client. Search what other users share, filter to FLAC or any
+  lossless format, and queue single files or whole folders. Files keep their original format and
+  tags and go through the same tagging and filing as other downloads.
+  With the FLAC format selected, every download is first looked up there for a real lossless
+  copy and only falls back to YouTube when none is found.
 - **Integrations:** Navidrome rescan and Discord notifications (webhook or bot).
 
 **Library**
@@ -81,11 +86,18 @@ re-download what you already have.
 
 ## Notes
 
-- **Spotify:** playlists are read from public embed pages, which list at most 100 tracks. Spotify's
-  February 2026 API changes restrict playlist contents to playlists the app owner owns. Adding API
-  credentials still helps with album and track metadata (album names, track numbers, release dates).
+- **Spotify:** public playlists are read in full without credentials, the same way the web player
+  lists them. That path is unofficial; if Spotify changes it, listings fall back to the public embed
+  page, which carries the first 100 tracks. Adding API credentials helps with album and track
+  metadata (album names, track numbers, release dates).
 - **Formats:** YouTube audio is lossy. The FLAC preset stores it losslessly but adds no quality.
   Opus avoids re-encoding.
+- **Soulseek:** turn it on under Settings › Integrations with an account no other Soulseek app is
+  signed in to (one account can be online in one place only). It works without an open port; for
+  more results, publish the listening port (default 2234) in Docker and forward it on your router.
+  Busy peers queue requests, so a download can wait before it starts; after the configured wait it
+  is dropped and retried. Calliope downloads but does not share files, and some users only serve
+  people who share. Files over 400 MB are refused. Only download what you have the right to.
 
 ## Development
 

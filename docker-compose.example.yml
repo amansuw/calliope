@@ -4,6 +4,9 @@ services:
     container_name: calliope
     ports:
       - '7200:7200'
+      # Optional: lets Soulseek peers reach Calliope (more search results, faster transfers).
+      # Must match the listening port in Settings › Integrations; forward it on your router too.
+      # - '2234:2234'
     environment:
       # First-boot password (skips the setup screen). Change it later in Settings › Account.
       CALLIOPE_PASSWORD: change-me

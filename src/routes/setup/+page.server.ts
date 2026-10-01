@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createSession, hasPassword, setPassword } from '$lib/server/auth';
 import { checkBinaries } from '$lib/server/binaries';
 import { scanLibrary } from '$lib/server/library/scanner';
+import { isHttps } from '$lib/server/origin';
 import { checkDir } from '$lib/server/paths';
 import { getSettings, updateSettings } from '$lib/server/settings';
 
@@ -13,6 +14,7 @@ export const load = async () => {
 
 export const actions = {
 	default: async ({ request, cookies, url }) => {
+		const secure = isHttps({ request, url });
 		if (hasPassword()) redirect(303, '/login');
 		const form = await request.formData();
 		const password = String(form.get('password') ?? '');
@@ -35,7 +37,7 @@ export const actions = {
 		updateSettings({ paths: { libraryDir, stagingDir } });
 		await setPassword(password);
 		void scanLibrary();
-		createSession(cookies, url.protocol === 'https:');
+		createSession(cookies, secure);
 		redirect(303, '/pipeline');
 	}
 };

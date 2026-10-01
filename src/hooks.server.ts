@@ -1,5 +1,6 @@
-import { json, redirect, type Handle, type ServerInit } from '@sveltejs/kit';
+import { json, redirect, text, type Handle, type ServerInit } from '@sveltejs/kit';
 import { hasPassword, SESSION_COOKIE, validateSession } from '$lib/server/auth';
+import { isCrossSite } from '$lib/server/origin';
 import { ensureRuntime } from '$lib/server/runtime';
 
 export const init: ServerInit = async () => {
@@ -12,6 +13,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;
 	if (pathname === '/api/health') return resolve(event);
 	const isApi = pathname.startsWith('/api/');
+	if (isCrossSite(event.request)) {
+		const message = 'Cross-site requests are forbidden';
+		return isApi ? json({ error: message }, { status: 403 }) : text(message, { status: 403 });
+	}
 	const isPublic =
 		PUBLIC.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
 		pathname.startsWith('/_app/');

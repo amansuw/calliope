@@ -12,7 +12,10 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			adapter: adapter(),
+			// The built-in origin check needs one fixed ORIGIN; hooks.server.ts does a same-host check
+			// instead so the app works at any address (LAN IP, hostname, tunnel).
+			csrf: { trustedOrigins: ['*'] }
 		})
 	],
 	test: {

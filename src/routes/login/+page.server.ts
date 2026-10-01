@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { checkPassword, createSession } from '$lib/server/auth';
+import { isHttps } from '$lib/server/origin';
 
 // Crude brute-force brake: one attempt per second per process is plenty for a single user.
 let lastAttempt = 0;
@@ -15,7 +16,7 @@ export const actions = {
 		lastAttempt = Date.now();
 		const password = String((await request.formData()).get('password') ?? '');
 		if (!(await checkPassword(password))) return fail(401, { error: 'Wrong password' });
-		createSession(cookies, url.protocol === 'https:');
+		createSession(cookies, isHttps({ request, url }));
 		const next = url.searchParams.get('next');
 		redirect(303, next?.startsWith('/') && !next.startsWith('//') ? next : '/pipeline');
 	}

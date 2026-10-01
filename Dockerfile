@@ -27,6 +27,7 @@ COPY --from=build --chown=node:node /app/build ./build
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
 COPY --from=build --chown=node:node /app/package.json ./
+COPY --chown=node:node docker/reset-password.mjs ./reset-password.mjs
 COPY --chmod=755 docker/entrypoint.sh /entrypoint.sh
 
 RUN mkdir -p /data /music && chown node:node /data /music

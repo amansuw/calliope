@@ -15,6 +15,7 @@ const scrypt = promisify(crypto.scrypt) as (
 
 export const SESSION_COOKIE = 'calliope_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Keep in sync with docker/reset-password.mjs
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 interface StoredHash {

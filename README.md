@@ -56,7 +56,9 @@ docker compose up -d --build
 Open `http://localhost:7200`. The image bundles FFmpeg, Chromaprint, deno and yt-dlp, and updates
 yt-dlp on every start (`YTDLP_AUTO_UPDATE=1`). YouTube regularly breaks old yt-dlp releases.
 
-Behind a reverse proxy, set `ORIGIN` to the public URL, or sign-in form posts are rejected.
+The app works at whatever address you open it at (LAN IP, hostname, reverse proxy or tunnel) — no `ORIGIN` needed. Proxies should pass the original `Host` (or `X-Forwarded-Host`) and `X-Forwarded-Proto`.
+
+Forgot the password? `docker exec -it calliope node reset-password.mjs` sets a new one and signs out every session.
 
 ## Running locally
 

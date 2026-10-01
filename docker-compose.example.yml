@@ -7,9 +7,6 @@ services:
     environment:
       # First-boot password (skips the setup screen). Change it later in Settings › Account.
       CALLIOPE_PASSWORD: change-me
-      # Exact URL you open the app at (scheme, host, port). Required: without it the Node
-      # adapter assumes https, so form POSTs over plain http fail with 403 and sign-in breaks.
-      ORIGIN: http://localhost:7200
       # Optional: path to the old Calliope v1 database, imported from Settings › Account.
       # LEGACY_DB: /legacy/calliope.db
       TZ: Etc/UTC

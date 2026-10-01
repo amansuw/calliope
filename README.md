@@ -24,8 +24,9 @@ Calliope v2: a ground-up rewrite of the original Next.js app on SvelteKit 5, Dri
 - **Soulseek:** optional built-in client. Search what other users share, filter to FLAC or any
   lossless format, and queue single files or whole folders. Files keep their original format and
   tags and go through the same tagging and filing as other downloads.
-  With the FLAC format selected, every download is first looked up there for a real lossless
-  copy and only falls back to YouTube when none is found.
+  Pick the preferred source under Settings › Pipeline: with Soulseek first, every download is
+  looked up there for a real lossless copy and falls back to YouTube; with YouTube first,
+  Soulseek is the fallback for tracks YouTube cannot deliver.
 - **Integrations:** Navidrome rescan and Discord notifications (webhook or bot).
 
 **Library**

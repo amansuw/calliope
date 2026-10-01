@@ -65,16 +65,13 @@ const AUTO_WAIT_MS = 90_000;
 const AUTO_TRIES = 3;
 
 /**
- * For FLAC downloads: find the same recording as a real lossless file on Soulseek and fetch it.
- * Returns null when Soulseek is off, has nothing suitable, or every transfer failed — the caller
- * then downloads from YouTube as usual.
+ * Find the same recording as a real lossless file on Soulseek and fetch it. Returns null when
+ * there is nothing suitable or every transfer failed — the caller then uses the other source.
  */
 async function fetchLossless(
 	t: Track,
 	ctx: WorkerContext
 ): Promise<{ file: string; pick: SlskPick } | null> {
-	const status = soulseek.status();
-	if (!status.enabled || !status.configured || !getSettings().soulseek.autoLossless) return null;
 	const target = {
 		title: t.title!,
 		artist: t.artist!,
@@ -88,12 +85,12 @@ async function fetchLossless(
 		const hits = await soulseek.search(soulseekQuery(target));
 		picks = rankLossless(hits, target, { freeOnly: true, maxBytes: MAX_SOULSEEK_BYTES });
 		if (!picks.length) {
-			ctx.log(`No lossless match on Soulseek (${hits.length} results) — using YouTube`);
+			ctx.log(`No lossless match on Soulseek (${hits.length} results)`);
 			return null;
 		}
 	} catch (err) {
 		checkAbort(ctx.signal);
-		ctx.log(`Soulseek search failed: ${(err as Error).message} — using YouTube`);
+		ctx.log(`Soulseek search failed: ${(err as Error).message}`);
 		return null;
 	}
 
@@ -119,7 +116,7 @@ async function fetchLossless(
 		}
 		cleanupStaging(t.id);
 	}
-	ctx.log('No usable lossless copy on Soulseek — using YouTube');
+	ctx.log('No usable lossless copy on Soulseek');
 	return null;
 }
 
@@ -196,66 +193,91 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 		}
 	}
 
-	// 3. Match to a YouTube upload ----------------------------------------------------------
-	if (t.provider === 'spotify') {
-		ctx.stage('matching');
-		ctx.log(`Searching YouTube for "${t.artist} - ${t.title}"`);
-		const match = await findMatch(
-			{
-				title: t.title,
-				artist: t.artist,
-				artists: t.artists ?? undefined,
-				durationMs: t.durationMs
-			},
-			{ signal: ctx.signal, log: ctx.log }
-		);
-		if (!match) throw new PermanentError('No YouTube results');
-		if (match.score < settings.pipeline.rejectScore) {
-			throw new PermanentError(
-				`Best match "${match.candidate.title}" scored ${match.score.toFixed(2)} — below the reject threshold`
-			);
-		}
-		update({
-			youtubeId: match.candidate.id,
-			matchUrl: `https://www.youtube.com/watch?v=${match.candidate.id}`,
-			matchTitle: match.candidate.title,
-			matchScore: match.score,
-			album: t.album ?? match.info?.album ?? null,
-			year: t.year ?? match.info?.releaseYear ?? null
-		});
-	}
-	checkAbort(ctx.signal);
-
-	// 4. Download ----------------------------------------------------------------------
+	// 3 + 4. Find and download the audio -------------------------------------------------
 	const preset = (
 		t.formatPreset in FORMAT_PRESETS ? t.formatPreset : settings.pipeline.formatPreset
 	) as FormatPresetId;
 	const fromSoulseek = t.provider === 'soulseek';
 	// The file came from a peer (picked by hand or found automatically), not from YouTube
 	let viaSoulseek = fromSoulseek;
+
+	/** Match a Spotify track to an upload when needed, then download it with yt-dlp. */
+	const fromYouTube = async () => {
+		if (t.provider === 'spotify') {
+			ctx.stage('matching');
+			ctx.log(`Searching YouTube for "${t.artist} - ${t.title}"`);
+			const match = await findMatch(
+				{
+					title: t.title!,
+					artist: t.artist!,
+					artists: t.artists ?? undefined,
+					durationMs: t.durationMs
+				},
+				{ signal: ctx.signal, log: ctx.log }
+			);
+			if (!match) throw new PermanentError('No YouTube results');
+			if (match.score < settings.pipeline.rejectScore) {
+				throw new PermanentError(
+					`Best match "${match.candidate.title}" scored ${match.score.toFixed(2)} — below the reject threshold`
+				);
+			}
+			update({
+				youtubeId: match.candidate.id,
+				matchUrl: `https://www.youtube.com/watch?v=${match.candidate.id}`,
+				matchTitle: match.candidate.title,
+				matchScore: match.score,
+				album: t.album ?? match.info?.album ?? null,
+				year: t.year ?? match.info?.releaseYear ?? null
+			});
+		}
+		checkAbort(ctx.signal);
+		ctx.stage('downloading');
+		return downloadAudio(t.matchUrl!, t.id, preset, {
+			signal: ctx.signal,
+			onProgress: ctx.progress,
+			onPostprocess: () => ctx.stage('processing'),
+			onLog: ctx.log
+		});
+	};
+	/** Record that the file came from a peer. */
+	const useLossless = ({ file, pick }: { file: string; pick: SlskPick }) => {
+		viaSoulseek = true;
+		update({
+			matchUrl: encodeRef(pick.ref),
+			matchTitle: `${pick.user}: ${pick.name}`,
+			matchScore: pick.score
+		});
+		return file;
+	};
+
 	let file: string;
 	try {
-		const lossless = !fromSoulseek && preset === 'flac' ? await fetchLossless(t, ctx) : null;
-		ctx.stage('downloading');
 		if (fromSoulseek) {
 			const ref = decodeRef(t.matchUrl);
 			if (!ref) throw new PermanentError('Missing Soulseek file reference');
+			ctx.stage('downloading');
 			file = await downloadSoulseek(t.id, ref, ctx);
-		} else if (lossless) {
-			file = lossless.file;
-			viaSoulseek = true;
-			update({
-				matchUrl: encodeRef(lossless.pick.ref),
-				matchTitle: `${lossless.pick.user}: ${lossless.pick.name}`,
-				matchScore: lossless.pick.score
-			});
 		} else {
-			file = await downloadAudio(t.matchUrl!, t.id, preset, {
-				signal: ctx.signal,
-				onProgress: ctx.progress,
-				onPostprocess: () => ctx.stage('processing'),
-				onLog: ctx.log
-			});
+			// The preferred source goes first and the other one is the fallback
+			const slsk = soulseek.status();
+			const soulseekReady = slsk.enabled && slsk.configured;
+			const soulseekFirst = soulseekReady && settings.pipeline.preferredSource === 'soulseek';
+			const lossless = soulseekFirst ? await fetchLossless(t, ctx) : null;
+			if (lossless) file = useLossless(lossless);
+			else {
+				if (soulseekFirst) ctx.log('Falling back to YouTube');
+				try {
+					file = await fromYouTube();
+				} catch (err) {
+					if (ctx.signal.aborted || soulseekFirst || !soulseekReady) throw err;
+					cleanupStaging(t.id);
+					ctx.log(`YouTube failed: ${(err as Error).message}`);
+					ctx.log('Falling back to Soulseek');
+					const alt = await fetchLossless(t, ctx);
+					if (!alt) throw err;
+					file = useLossless(alt);
+				}
+			}
 		}
 	} catch (err) {
 		cleanupStaging(t.id);

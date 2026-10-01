@@ -16,7 +16,10 @@ const MIN_BYTES = 2 * 1024 * 1024;
 /** Words every shared path must contain: Soulseek only returns files matching all of them. */
 export function soulseekQuery(target: MatchTarget) {
 	const artist = target.artists?.[0] ?? target.artist;
-	return normalize(`${artist} ${cleanTitle(target.title)}`);
+	return normalize(`${artist} ${cleanTitle(target.title)}`)
+		.split(' ')
+		.filter((w) => w.length > 1)
+		.join(' ');
 }
 
 /**

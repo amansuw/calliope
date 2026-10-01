@@ -21,18 +21,19 @@ export async function findMatch(
 	const infos = new Map<string, YtVideoInfo>();
 
 	// YouTube Music and plain YouTube searches are independent — run them side by side.
-	const ytmTask = getSettings().pipeline.preferYtMusic
-		? (async () => {
-				const ytm = await ytMusicSearch(query, 3, { signal: opts.signal });
-				log(`YouTube Music: ${ytm.length} song results`);
-				// Flat YTM results lack duration/artist; look up the top one in full.
-				return ytm[0] ? await ytVideoInfo(ytm[0].id, { signal: opts.signal }) : null;
-			})().catch((err) => {
-				if (opts.signal?.aborted) throw err;
-				log(`YouTube Music search failed: ${(err as Error).message}`);
-				return null;
-			})
-		: Promise.resolve(null);
+	const ytmTask =
+		getSettings().pipeline.preferredSource !== 'youtube'
+			? (async () => {
+					const ytm = await ytMusicSearch(query, 3, { signal: opts.signal });
+					log(`YouTube Music: ${ytm.length} song results`);
+					// Flat YTM results lack duration/artist; look up the top one in full.
+					return ytm[0] ? await ytVideoInfo(ytm[0].id, { signal: opts.signal }) : null;
+				})().catch((err) => {
+					if (opts.signal?.aborted) throw err;
+					log(`YouTube Music search failed: ${(err as Error).message}`);
+					return null;
+				})
+			: Promise.resolve(null);
 	const [top, results] = await Promise.all([
 		ytmTask,
 		ytSearch(`${query} audio`, 6, { signal: opts.signal })

@@ -28,7 +28,12 @@ export const SettingsSchema = z.object({
 			/** Below this, the track fails instead of downloading a likely-wrong song */
 			rejectScore: z.number().min(0).max(1).default(0.35),
 			maxAttempts: z.number().int().min(1).max(10).default(3),
-			preferYtMusic: z.boolean().default(true),
+			/**
+			 * Where a track's audio is looked for first; the other source is the fallback.
+			 * 'soulseek' needs Soulseek enabled and fetches real lossless files, 'ytmusic' takes the top
+			 * YouTube Music song result, 'youtube' uses plain YouTube search only.
+			 */
+			preferredSource: z.enum(['soulseek', 'ytmusic', 'youtube']).default('ytmusic'),
 			/** Look up album, track numbers, year, genres and cover art on MusicBrainz */
 			enrichMusicBrainz: z.boolean().default(true)
 		})
@@ -96,8 +101,6 @@ export const SettingsSchema = z.object({
 			password: str(),
 			/** Port other users connect to. Results and transfers work best when it is reachable. */
 			listenPort: z.number().int().min(1024).max(65535).default(2234),
-			/** FLAC downloads look for a real lossless copy here before falling back to YouTube */
-			autoLossless: z.boolean().default(true),
 			/** Give up on a peer that keeps a download queued this long (retried later) */
 			queueTimeoutMinutes: z.number().int().min(1).max(720).default(10)
 		})
@@ -143,6 +146,28 @@ function defaults(): Settings {
 	return s;
 }
 
+/** Carry choices made with older setting names over to the ones that replaced them. */
+function migrateLegacy(merged: Record<string, Record<string, unknown>>) {
+	const stored = merged.pipeline;
+	if ('preferYtMusic' in stored || 'autoLossless' in merged.soulseek) {
+		const hadChoice = stored.preferredSource !== undefined && !('preferYtMusic' in stored);
+		if (!hadChoice) {
+			// FLAC with Soulseek on used to mean "Soulseek first"; the YouTube Music switch chose the rest
+			const soulseekFirst =
+				merged.soulseek.enabled === true &&
+				merged.soulseek.autoLossless !== false &&
+				stored.formatPreset === 'flac';
+			stored.preferredSource = soulseekFirst
+				? 'soulseek'
+				: stored.preferYtMusic === false
+					? 'youtube'
+					: 'ytmusic';
+		}
+		delete stored.preferYtMusic;
+		delete merged.soulseek.autoLossless;
+	}
+}
+
 export function getSettings(): Settings {
 	if (cache) return cache;
 	const rows = db.select().from(schema.settings).all();
@@ -153,6 +178,7 @@ export function getSettings(): Settings {
 	for (const key of Object.keys(base) as SettingsSection[]) {
 		merged[key] = { ...base[key], ...((stored[key] as object) ?? {}) };
 	}
+	migrateLegacy(merged as Record<string, Record<string, unknown>>);
 	const parsed = SettingsSchema.safeParse(merged);
 	// A bad stored value (e.g. from an older version) shouldn't brick the app — fall back per field.
 	cache = absolutePaths(parsed.success ? parsed.data : base);

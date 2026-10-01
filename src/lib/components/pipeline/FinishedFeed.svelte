@@ -13,6 +13,9 @@
 	let { items, lowConfidence = 0.6 }: { items: TrackDTO[]; lowConfidence?: number } = $props();
 	let open = $state<string | null>(null);
 
+	/** The file is a peer's original, not a YouTube download */
+	const viaSoulseek = (t: TrackDTO) => !!t.matchUrl?.startsWith('soulseek:');
+
 	function toggle(id: string) {
 		if (open) live.unwatchLog(open);
 		open = open === id ? null : id;
@@ -37,17 +40,19 @@
 							<StatusBadge status={t.status} />
 							{#if t.status === 'done'}
 								<span class="chip border-white/8 bg-white/[0.03] text-ink-300">
-									{FORMAT_PRESETS[t.formatPreset as keyof typeof FORMAT_PRESETS]?.label ??
-										t.formatPreset}{t.bitrate ? ` · ${t.bitrate}k` : ''}
+									{viaSoulseek(t)
+										? (t.filePath?.split('.').pop()?.toUpperCase() ?? 'FILE')
+										: (FORMAT_PRESETS[t.formatPreset as keyof typeof FORMAT_PRESETS]?.label ??
+											t.formatPreset)}{t.bitrate ? ` · ${t.bitrate}k` : ''}
 								</span>
-								{#if t.matchUrl?.startsWith('soulseek:')}
+								{#if viaSoulseek(t)}
 									<span
 										class="chip border-ok/25 bg-ok/5 text-ok"
 										title="Original file from a Soulseek peer{t.matchTitle
 											? `: ${t.matchTitle}`
 											: ''}">Soulseek</span
 									>
-								{:else if t.formatPreset === 'flac'}
+								{:else if t.formatPreset === 'flac' && t.provider !== 'soulseek'}
 									<span
 										class="chip border-warn/30 bg-warn/10 text-warn"
 										title="No lossless copy was found, so this FLAC holds YouTube's lossy audio"

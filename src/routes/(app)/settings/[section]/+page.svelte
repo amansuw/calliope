@@ -336,19 +336,20 @@
 							>{/each}. Set a source's format to Default to follow this setting.
 					</p>
 				{/if}
-				{#if draft.pipeline.formatPreset === 'flac'}
-					{#if draft.soulseek.enabled && draft.soulseek.autoLossless}
-						<p class="pb-3 text-xs text-ink-300">
-							Each track is first looked up on Soulseek for a real lossless copy. When none is found
-							it comes from YouTube, whose audio is lossy — FLAC then only makes that file larger.
-						</p>
-					{:else}
-						<p class="pb-3 text-xs text-warn/90">
-							YouTube audio is lossy (Opus/AAC ~128–160 kbps). FLAC preserves it exactly but can't
-							add quality back — files are just larger. Turn on Soulseek under Integrations to get
-							real lossless files.
-						</p>
-					{/if}
+				{#if draft.soulseek.enabled && draft.pipeline.preferredSource === 'soulseek'}
+					<p class="pb-3 text-xs text-ink-300">
+						Files found on Soulseek keep their own lossless format whatever is chosen here. This
+						format is used for tracks that fall back to YouTube{draft.pipeline.formatPreset ===
+						'flac'
+							? ', whose audio is lossy — FLAC only makes those files larger'
+							: ''}.
+					</p>
+				{:else if draft.pipeline.formatPreset === 'flac'}
+					<p class="pb-3 text-xs text-warn/90">
+						YouTube audio is lossy (Opus/AAC ~128–160 kbps). FLAC preserves it exactly but can't add
+						quality back — files are just larger. For real lossless files, enable Soulseek and make
+						it the preferred source below.
+					</p>
 				{/if}
 			</Section>
 
@@ -371,10 +372,24 @@
 				</Field>
 				<Field
 					row
-					label="Prefer YouTube Music"
-					hint="Look up the top YouTube Music song result first — usually the official audio."
+					label="Preferred source"
+					hint={draft.pipeline.preferredSource === 'soulseek'
+						? draft.soulseek.enabled
+							? 'Look for a real lossless (FLAC) copy on Soulseek first. Tracks it cannot find come from YouTube in the output format above.'
+							: 'Soulseek is turned off under Integrations, so tracks come from YouTube until it is enabled.'
+						: `${
+								draft.pipeline.preferredSource === 'ytmusic'
+									? 'Take the top YouTube Music song result first — usually the official audio.'
+									: 'Use plain YouTube search only.'
+							}${draft.soulseek.enabled ? ' Tracks YouTube cannot deliver are looked up on Soulseek.' : ''}`}
 				>
-					<Switch bind:checked={draft.pipeline.preferYtMusic} label="Prefer YouTube Music" />
+					<select class="input !w-44" bind:value={draft.pipeline.preferredSource}>
+						<option value="soulseek"
+							>Soulseek{draft.soulseek.enabled ? '' : ' (not enabled)'}</option
+						>
+						<option value="ytmusic">YouTube Music</option>
+						<option value="youtube">YouTube search</option>
+					</select>
 				</Field>
 				<Field
 					row
@@ -709,15 +724,6 @@
 						/></Field
 					>
 				</div>
-				<Field
-					row
-					label="Use for FLAC downloads"
-					hint="When a track's format is FLAC, look for the same recording as a real lossless file on Soulseek first, from a peer that can send right away. If none is found the track is downloaded from YouTube as usual."
-					><Switch
-						bind:checked={draft.soulseek.autoLossless}
-						label="Use for FLAC downloads"
-					/></Field
-				>
 				<Field
 					row
 					label="Listening port"

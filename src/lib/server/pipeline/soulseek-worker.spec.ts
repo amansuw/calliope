@@ -10,7 +10,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-slsk-'));
 const fixture = path.join(tmp, 'fixture.flac');
 
 // The peer transfer is replaced by a local copy: everything after it is the real pipeline.
-const net = vi.hoisted(() => ({ hits: [] as unknown[], youtube: 0 }));
+const net = vi.hoisted(() => ({ hits: [] as unknown[], youtube: 0, youtubeFails: false }));
 vi.mock('../soulseek', () => ({
 	soulseek: {
 		status: () => ({ enabled: true, configured: true }),
@@ -26,6 +26,7 @@ vi.mock('./download', async (original) => ({
 	...(await original<typeof import('./download')>()),
 	downloadAudio: async (_url: string, id: string) => {
 		net.youtube++;
+		if (net.youtubeFails) throw new Error('yt-dlp exploded');
 		const dest = path.join(tmp, 'staging', `${id}.flac`);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.copyFileSync(fixture, dest);
@@ -107,19 +108,24 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 		// the same song is downloaded by every test here
 		force: true
 	});
-	const run = async (title: string, formatPreset: string) => {
+	const run = async (preferredSource: 'soulseek' | 'ytmusic', formatPreset = 'mp3-320') => {
+		const { updateSettings } = await import('../settings');
 		const { pipeline } = await import('./queue');
 		const { getTrack } = await import('./tracks');
 		const { processTrack } = await import('./worker');
-		const [track] = pipeline.enqueue([spotifyTrack(title)], { formatPreset });
+		updateSettings({ pipeline: { preferredSource } });
+		const [track] = pipeline.enqueue([spotifyTrack('Silent Running')], { formatPreset });
 		const log: string[] = [];
-		await processTrack(track, {
+		const error = await processTrack(track, {
 			signal: new AbortController().signal,
 			log: (l) => log.push(l),
 			stage: () => {},
 			progress: () => {}
-		});
-		return { track: getTrack(track.id)!, log };
+		}).then(
+			() => null,
+			(err: Error) => err
+		);
+		return { track: getTrack(track.id)!, log: log.join('\n'), error };
 	};
 	const peerHit = {
 		user: 'peer',
@@ -129,11 +135,12 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 		speed: 1,
 		attribs: { 1: 1 }
 	};
+	const otherSong = { ...peerHit, file: 'music\\Gorillaz\\Other\\01 - Something Else.flac' };
+	const YOUTUBE_URL = 'https://www.youtube.com/watch?v=yt123';
 
-	it('fetches a FLAC track from Soulseek when a lossless match exists, keeping its metadata', async () => {
-		net.hits = [peerHit];
-		net.youtube = 0;
-		const { track } = await run('Silent Running', 'flac');
+	it('Soulseek preferred: fetches the lossless file whatever the output format, keeping metadata', async () => {
+		Object.assign(net, { hits: [peerHit], youtube: 0, youtubeFails: false });
+		const { track } = await run('soulseek', 'mp3-320');
 		expect(net.youtube).toBe(0);
 		expect(track.matchUrl).toMatch(/^soulseek:peer\//);
 		// The Spotify album stays; the file's own tags only fill what was missing
@@ -141,21 +148,34 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 		expect(track.filePath).toMatch(/Cracker Island \(Deluxe\)[\\/]04 - Silent Running\.flac$/);
 	});
 
-	it('falls back to YouTube when Soulseek has no lossless match', async () => {
-		net.hits = [{ ...peerHit, file: 'music\\Gorillaz\\Other\\01 - Something Else.flac' }];
-		net.youtube = 0;
-		const { track, log } = await run('Silent Running', 'flac');
+	it('Soulseek preferred: falls back to YouTube when there is no lossless match', async () => {
+		Object.assign(net, { hits: [otherSong], youtube: 0, youtubeFails: false });
+		const { track, log } = await run('soulseek');
 		expect(net.youtube).toBe(1);
-		expect(track.matchUrl).toBe('https://www.youtube.com/watch?v=yt123');
-		expect(log.join('\n')).toContain('No lossless match on Soulseek');
+		expect(track.matchUrl).toBe(YOUTUBE_URL);
+		expect(log).toContain('No lossless match on Soulseek');
+		expect(log).toContain('Falling back to YouTube');
 	});
 
-	it('does not touch Soulseek for other formats', async () => {
-		net.hits = [peerHit];
-		net.youtube = 0;
-		const { track, log } = await run('Silent Running', 'mp3-320');
+	it('YouTube preferred: does not touch Soulseek while YouTube works', async () => {
+		Object.assign(net, { hits: [peerHit], youtube: 0, youtubeFails: false });
+		const { track, log } = await run('ytmusic', 'flac');
 		expect(net.youtube).toBe(1);
-		expect(track.matchUrl).toBe('https://www.youtube.com/watch?v=yt123');
-		expect(log.join('\n')).not.toContain('Soulseek');
+		expect(track.matchUrl).toBe(YOUTUBE_URL);
+		expect(log).not.toContain('Soulseek');
+	});
+
+	it('YouTube preferred: falls back to Soulseek when YouTube fails', async () => {
+		Object.assign(net, { hits: [peerHit], youtube: 0, youtubeFails: true });
+		const { track, log, error } = await run('ytmusic');
+		expect(error).toBeNull();
+		expect(track.matchUrl).toMatch(/^soulseek:peer\//);
+		expect(log).toContain('Falling back to Soulseek');
+	});
+
+	it('reports the YouTube error when neither source has the track', async () => {
+		Object.assign(net, { hits: [otherSong], youtube: 0, youtubeFails: true });
+		const { error } = await run('ytmusic');
+		expect(error?.message).toBe('yt-dlp exploded');
 	});
 });

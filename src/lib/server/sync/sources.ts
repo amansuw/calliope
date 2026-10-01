@@ -401,7 +401,8 @@ async function applyListing(
 				fresh.push(item);
 			}
 		}
-		if (!listing.partial) {
+		// A partial or capped listing can't tell what was removed further down.
+		if (!listing.partial && !listing.truncated) {
 			const gone = [...existing.keys()].filter((k) => !seen.has(k));
 			for (const part of chunk(gone)) {
 				tx.update(schema.sourceItems)

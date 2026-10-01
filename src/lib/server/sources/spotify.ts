@@ -2,7 +2,8 @@
  * Spotify metadata.
  *
  * Primary path: the public embed pages (open.spotify.com/embed/…), whose __NEXT_DATA__ carries
- * the entity and up to 100 tracks. No credentials needed.
+ * the entity and up to 100 tracks. No credentials needed. Playlists are then listed in full
+ * through the web player's own query, using the anonymous session token the embed page hands out.
  *
  * Optional path: the Web API with client credentials. Since the Feb 2026 dev-mode changes it
  * only lists items of playlists the app owner owns/collaborates on, but single track and album
@@ -32,7 +33,10 @@ interface EmbedEntity {
 	trackList?: { uri: string; title: string; subtitle: string; duration: number }[];
 }
 
-async function fetchEmbed(kind: 'track' | 'album' | 'playlist', id: string): Promise<EmbedEntity> {
+/** Embed entity plus the anonymous web-player token the page was rendered with. */
+type Embed = EmbedEntity & { accessToken: string | null };
+
+async function fetchEmbed(kind: 'track' | 'album' | 'playlist', id: string): Promise<Embed> {
 	const res = await fetch(`https://open.spotify.com/embed/${kind}/${id}`, {
 		headers: { 'User-Agent': UA, 'Accept-Language': 'en' },
 		signal: AbortSignal.timeout(20_000)
@@ -42,9 +46,10 @@ async function fetchEmbed(kind: 'track' | 'album' | 'playlist', id: string): Pro
 	const html = await res.text();
 	const json = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)?.[1];
 	if (!json) throw new Error('Spotify embed page format changed (no __NEXT_DATA__)');
-	const entity = JSON.parse(json)?.props?.pageProps?.state?.data?.entity as EmbedEntity | undefined;
+	const state = JSON.parse(json)?.props?.pageProps?.state;
+	const entity = state?.data?.entity as EmbedEntity | undefined;
 	if (!entity?.id) throw new Error('Spotify embed page had no entity data');
-	return entity;
+	return { ...entity, accessToken: state?.settings?.session?.accessToken ?? null };
 }
 
 function embedArtwork(e: EmbedEntity): string | null {
@@ -62,6 +67,103 @@ const splitArtists = (s: string) =>
 		.filter(Boolean);
 
 const uriId = (uri: string) => uri.split(':').pop() ?? uri;
+
+// ---------------- web player query (full playlists) ----------------
+
+// Persisted-query id of the web player's fetchPlaylist operation. Spotify rotates these now and
+// then; when this one stops resolving, listing falls back to the embed's first 100 tracks.
+const FETCH_PLAYLIST_HASH = '19ff1327c29e99c208c86d7a9d8f1929cfdf3d3202a0ff4253c821f1901aa94d';
+const PLAYLIST_PAGE = 100;
+
+type PartnerImage = { url: string; width: number | null };
+type PartnerArtists = { items?: { profile?: { name?: string } }[] };
+interface PartnerItem {
+	itemV2?: {
+		data?: {
+			__typename?: string;
+			uri?: string;
+			name?: string;
+			trackNumber?: number;
+			discNumber?: number;
+			trackDuration?: { totalMilliseconds?: number };
+			artists?: PartnerArtists;
+			albumOfTrack?: {
+				name?: string;
+				artists?: PartnerArtists;
+				coverArt?: { sources?: PartnerImage[] };
+			};
+		};
+	};
+}
+
+async function playlistPage(id: string, accessToken: string, offset: number) {
+	const res = await fetch('https://api-partner.spotify.com/pathfinder/v2/query', {
+		method: 'POST',
+		headers: {
+			'User-Agent': UA,
+			Authorization: `Bearer ${accessToken}`,
+			Accept: 'application/json',
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			operationName: 'fetchPlaylist',
+			variables: {
+				uri: `spotify:playlist:${id}`,
+				offset,
+				limit: PLAYLIST_PAGE,
+				enableWatchFeedEntrypoint: false
+			},
+			extensions: { persistedQuery: { version: 1, sha256Hash: FETCH_PLAYLIST_HASH } }
+		}),
+		signal: AbortSignal.timeout(20_000)
+	});
+	if (!res.ok) throw new Error(`playlist query returned ${res.status}`);
+	const data = (await res.json()) as {
+		data?: { playlistV2?: { content?: { totalCount?: number; items?: PartnerItem[] } } };
+		errors?: { message?: string }[];
+	};
+	const content = data.data?.playlistV2?.content;
+	if (!content?.items)
+		throw new Error(data.errors?.[0]?.message ?? 'playlist query had no content');
+	return { items: content.items, total: content.totalCount ?? content.items.length };
+}
+
+const partnerNames = (a?: PartnerArtists) =>
+	(a?.items ?? []).map((i) => i.profile?.name).filter((n): n is string => !!n);
+
+/** Every track of a public playlist, in order. Episodes and local files are skipped. */
+async function playlistTracks(id: string, accessToken: string): Promise<RemoteTrack[]> {
+	const rows: PartnerItem[] = [];
+	for (let offset = 0, total = 1; offset < total; offset += PLAYLIST_PAGE) {
+		const page = await playlistPage(id, accessToken, offset);
+		if (!page.items.length) break;
+		rows.push(...page.items);
+		total = page.total;
+	}
+	const tracks: RemoteTrack[] = [];
+	for (const row of rows) {
+		const t = row.itemV2?.data;
+		if (t?.__typename !== 'Track' || !t.uri?.startsWith('spotify:track:') || !t.name) continue;
+		const artists = partnerNames(t.artists);
+		const cover = [...(t.albumOfTrack?.coverArt?.sources ?? [])].sort(
+			(a, b) => (b.width ?? 0) - (a.width ?? 0)
+		)[0];
+		tracks.push({
+			externalId: uriId(t.uri),
+			title: t.name,
+			artist: artists[0] ?? 'Unknown Artist',
+			artists,
+			album: t.albumOfTrack?.name ?? null,
+			albumArtist: partnerNames(t.albumOfTrack?.artists)[0] ?? null,
+			durationMs: t.trackDuration?.totalMilliseconds ?? null,
+			artworkUrl: cover?.url ?? null,
+			trackNumber: t.trackNumber ?? null,
+			discNumber: t.discNumber ?? null,
+			position: tracks.length + 1
+		});
+	}
+	return tracks;
+}
 
 // ---------------- Web API (optional) ----------------
 
@@ -191,6 +293,22 @@ export async function spotifyCollection(
 	const albumName = kind === 'album' ? (e.name ?? e.title ?? null) : null;
 	const albumArtist = kind === 'album' ? (splitArtists(e.subtitle ?? '')[0] ?? null) : null;
 	const artwork = embedArtwork(e);
+	if (kind === 'playlist' && e.accessToken) {
+		try {
+			const items = await playlistTracks(id, e.accessToken);
+			// An empty answer for a playlist the embed shows tracks for means the query broke.
+			if (items.length || !e.trackList?.length)
+				return {
+					name: e.name ?? e.title ?? 'Spotify',
+					owner: e.subtitle ?? null,
+					artworkUrl: artwork,
+					items,
+					truncated: false
+				};
+		} catch (err) {
+			console.warn('[spotify] full playlist listing failed, using embed:', (err as Error).message);
+		}
+	}
 	const items: RemoteTrack[] = (e.trackList ?? []).map((t, i) => {
 		const artists = splitArtists(t.subtitle);
 		return {

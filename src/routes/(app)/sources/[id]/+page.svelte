@@ -160,7 +160,7 @@
 		{#if source.truncated}
 			<p class="mt-2 text-xs text-warn/90">
 				{source.provider === 'spotify'
-					? 'Spotify only exposes the first 100 tracks of this playlist publicly. Add Spotify API credentials in Settings for playlists you own to lift the limit.'
+					? "Only the first 100 tracks could be read on the last check — Spotify's full listing was unavailable. The next check tries again."
 					: 'Only the most recent uploads are tracked for channels.'}
 			</p>
 		{/if}

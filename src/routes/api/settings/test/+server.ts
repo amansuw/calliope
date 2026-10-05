@@ -13,6 +13,10 @@ export const POST = handler(async (event) => {
 	if (target === 'spotify') return json({ message: await testSpotifyApi() });
 	if (target === 'navidrome') return json({ message: await testNavidrome() });
 	if (target === 'soulseek') return json({ message: await soulseek.test() });
-	await notifyDiscord('completed', 'Calliope test', 'Notifications are working.', true);
+	await notifyDiscord(
+		'completed',
+		{ title: '✅ Calliope test', description: 'Notifications are working.' },
+		true
+	);
 	return json({ message: 'Test message sent' });
 });

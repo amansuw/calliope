@@ -4,7 +4,7 @@ import type { Telemetry, WorkerTelemetry } from '$lib/types';
 import { db, schema } from '../db';
 import type { NewTrack, Track } from '../db/schema';
 import { bus } from '../events';
-import { notifyDiscord, queueCompletionNotice } from '../integrations/discord';
+import { failureEmbed, notifyDiscord, queueCompletionNotice } from '../integrations/discord';
 import { scheduleNavidromeScan } from '../integrations/navidrome';
 import { getInternal, getSettings, setInternal } from '../settings';
 import type { DownloadProgress } from './download';
@@ -198,7 +198,7 @@ class Pipeline {
 		});
 		if (!row) return;
 		if (status === 'done') {
-			queueCompletionNotice(`**${row.artist}** — ${row.title}`);
+			queueCompletionNotice(row);
 			scheduleNavidromeScan();
 		}
 		if (status === 'failed') {
@@ -208,11 +208,7 @@ class Pipeline {
 				row.error ?? undefined,
 				'/pipeline'
 			);
-			notifyDiscord(
-				'errors',
-				'Download failed',
-				`**${row.artist ?? '?'}** — ${row.title ?? row.requestedUrl}\n${row.error}`
-			).catch(() => {});
+			notifyDiscord('errors', failureEmbed(row)).catch(() => {});
 		}
 	}
 

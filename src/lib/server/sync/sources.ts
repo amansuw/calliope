@@ -446,13 +446,13 @@ async function applyListing(
 			names.join('\n'),
 			`/sources/${sourceId}`
 		);
-		notifyDiscord(
-			'newTracks',
-			`${fresh.length} new track${fresh.length === 1 ? '' : 's'} in ${source.name}`,
-			names.join('\n') +
+		notifyDiscord('newTracks', {
+			title: `${fresh.length} new track${fresh.length === 1 ? '' : 's'} in ${source.name}`,
+			description:
+				names.join('\n') +
 				(fresh.length > 5 ? `\n…and ${fresh.length - 5} more` : '') +
 				(queued ? `\n\nQueued ${queued}.` : '')
-		).catch(() => {});
+		}).catch(() => {});
 	}
 	emitSource(sourceId);
 	return { fresh: fresh.length, queued };

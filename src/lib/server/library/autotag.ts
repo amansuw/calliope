@@ -9,6 +9,7 @@ import { bus } from '../events';
 import { getSettings } from '../settings';
 import { organize } from '../studio/service';
 import { fetchImage, writeArtwork, writeTags } from '../tagger';
+import { albumReleaseId } from './lookup';
 import { reindexFiles, setActivity } from './scanner';
 
 let running = false;
@@ -59,7 +60,7 @@ export function autoTagFiles(ids: string[], opts: { organize: boolean }) {
 						discNumber: p.discNumber,
 						genre: splitGenres(p.genre),
 						mbRecordingId: e.recordingId,
-						mbReleaseId: e.releaseId,
+						mbReleaseId: albumReleaseId(p.albumArtist, p.album, e.releaseId),
 						mbArtistId: e.artistId
 					});
 					// The user asked for the real album cover: replace whatever is embedded.

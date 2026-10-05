@@ -15,7 +15,7 @@ import {
 } from '../enrich';
 import type { Track } from '../db/schema';
 import { fetchLyrics } from '../integrations/lyrics';
-import { findInLibrary } from '../library/lookup';
+import { albumReleaseId, findInLibrary } from '../library/lookup';
 import { getSettings } from '../settings';
 import { soulseek } from '../soulseek';
 import { findMatch } from '../sources/match';
@@ -484,7 +484,11 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			lyrics: lyricText ?? undefined,
 			mbRecordingId: mbMatch?.recordingId,
 			mbReleaseId:
-				mbMatch && mbMatch.album === t.album ? (mbMatch.releaseId ?? undefined) : undefined,
+				albumReleaseId(
+					t.albumArtist ?? t.artists?.[0] ?? t.artist,
+					t.album,
+					mbMatch && mbMatch.album === t.album ? mbMatch.releaseId : null
+				) ?? undefined,
 			mbArtistId: mbMatch?.artistId ?? undefined
 		});
 
@@ -555,6 +559,7 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 				genre: t.genre,
 				hasArtwork,
 				hasLyrics: !!lyricText,
+				mbReleaseId: first(meta.tags.musicbrainzReleaseId),
 				matchKey: matchKey(t.artist, t.title),
 				trackId: t.id
 			})

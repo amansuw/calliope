@@ -20,6 +20,17 @@ describe('text helpers', () => {
 			title: 'Uprising'
 		});
 		expect(splitArtistTitle('Uprising', 'MuseVEVO')).toEqual({ artist: 'Muse', title: 'Uprising' });
+		// The artist's own channel names the song first
+		expect(
+			splitArtistTitle(
+				'Right Now - Fort Minor (feat. Styles of Beyond) [Official Audio]',
+				'Fort Minor'
+			)
+		).toEqual({ artist: 'Fort Minor (feat. Styles of Beyond)', title: 'Right Now' });
+		expect(splitArtistTitle('Fort Minor - Right Now', 'Fort Minor')).toEqual({
+			artist: 'Fort Minor',
+			title: 'Right Now'
+		});
 	});
 
 	it('scores similarity', () => {

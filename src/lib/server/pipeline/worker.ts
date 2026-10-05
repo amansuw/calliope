@@ -10,12 +10,13 @@ import {
 	applyEnrichment,
 	enrich,
 	identifyRecording,
+	sameAlbum,
 	splitGenres,
 	type Enrichment
 } from '../enrich';
 import type { Track } from '../db/schema';
 import { fetchLyrics } from '../integrations/lyrics';
-import { albumReleaseId, findInLibrary } from '../library/lookup';
+import { albumIdentity, findInLibrary } from '../library/lookup';
 import { getSettings } from '../settings';
 import { soulseek } from '../soulseek';
 import { findMatch } from '../sources/match';
@@ -469,6 +470,15 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			? (lyrics?.synced ?? lyrics?.plain)
 			: (lyrics?.plain ?? lyrics?.synced);
 
+		// File the track with the album the library already has: one album artist, one release ID
+		const identity = albumIdentity({
+			albumArtist: t.albumArtist,
+			artist: t.artists?.[0] ?? t.artist,
+			album: t.album,
+			releaseId: mbMatch && sameAlbum(mbMatch.album, t.album) ? mbMatch.releaseId : null
+		});
+		update({ albumArtist: identity.albumArtist, album: identity.album });
+
 		await writeTags(file, {
 			title: t.title,
 			artists: t.artists?.length ? t.artists : [t.artist],
@@ -478,17 +488,14 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			trackNumber: t.trackNumber ?? undefined,
 			discNumber: t.discNumber ?? undefined,
 			trackTotal:
-				mbMatch && mbMatch.album === t.album ? (mbMatch.trackTotal ?? undefined) : undefined,
+				mbMatch && sameAlbum(mbMatch.album, t.album)
+					? (mbMatch.trackTotal ?? undefined)
+					: undefined,
 			genre: splitGenres(t.genre),
 			comment: viaSoulseek ? undefined : (t.matchUrl ?? undefined),
 			lyrics: lyricText ?? undefined,
 			mbRecordingId: mbMatch?.recordingId,
-			mbReleaseId:
-				albumReleaseId(
-					t.albumArtist ?? t.artists?.[0] ?? t.artist,
-					t.album,
-					mbMatch && mbMatch.album === t.album ? mbMatch.releaseId : null
-				) ?? undefined,
+			mbReleaseId: identity.releaseId ?? undefined,
 			mbArtistId: mbMatch?.artistId ?? undefined
 		});
 

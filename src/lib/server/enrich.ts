@@ -413,6 +413,10 @@ export async function albumOptions(
 	return [...best.values()].sort((a, b) => b.confidence - a.confidence).slice(0, 30);
 }
 
+/** The same album title, whatever the punctuation ("Sound City - Real to Reel" / "Sound City: Real to Reel"). */
+export const sameAlbum = (a: string | null | undefined, b: string | null | undefined) =>
+	!!a && !!b && normalize(a) === normalize(b);
+
 /** Same artist ignoring case/punctuation — safe to adopt MusicBrainz's canonical spelling. */
 export const sameArtist = (a: string | null | undefined, b: string | null | undefined) =>
 	!!a && !!b && normalize(a) === normalize(b);
@@ -444,7 +448,11 @@ export function applyEnrichment(cur: TagFields, e: Enrichment, opts: { keepAlbum
 		artist: artistOk ? e.artist : cur.artist,
 		artists: artistOk ? e.artists : (cur.artists ?? null),
 		album: keep ? cur.album : (e.album ?? cur.album),
-		albumArtist: keep ? cur.albumArtist : (e.albumArtist ?? cur.albumArtist),
+		// A kept album whose artist is unknown (a playlist entry) takes MusicBrainz's when it found
+		// that album: on a compilation the album artist is not the track's
+		albumArtist: keep
+			? (cur.albumArtist ?? (sameAlbum(cur.album, e.album) ? e.albumArtist : null))
+			: (e.albumArtist ?? cur.albumArtist),
 		year: keep && cur.year ? cur.year : (e.year ?? cur.year),
 		trackNumber: keep && cur.trackNumber ? cur.trackNumber : (e.trackNumber ?? cur.trackNumber),
 		discNumber: keep && cur.discNumber ? cur.discNumber : (e.discNumber ?? cur.discNumber),

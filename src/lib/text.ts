@@ -21,9 +21,17 @@ export function splitArtistTitle(
 	const title = cleanTitle(rawTitle);
 	const topic = channel?.match(/^(.*) - Topic$/);
 	if (topic) return { artist: topic[1], title };
+	const uploader = (channel ?? '').replace(/VEVO$/i, '').trim();
 	const m = title.match(/^(.+?)\s+[-–—]\s+(.+)$/);
-	if (m) return { artist: m[1].trim(), title: m[2].trim().replace(/^["“](.*)["”]$/, '$1') };
-	return { artist: (channel ?? '').replace(/VEVO$/i, '').trim() || 'Unknown Artist', title };
+	if (m) {
+		let [artist, song] = [m[1].trim(), m[2].trim()];
+		// "Song - Artist (feat. X)" on the artist's own channel: the channel says which side is which
+		const who = normalize(uploader);
+		if (who && normalize(song) === who && normalize(artist) !== who)
+			[artist, song] = [song, artist];
+		return { artist, title: song.replace(/^["“](.*)["”]$/, '$1') };
+	}
+	return { artist: uploader || 'Unknown Artist', title };
 }
 
 /** Lowercase, strip accents/punctuation/feat. credits for comparison. */

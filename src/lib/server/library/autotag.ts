@@ -9,7 +9,7 @@ import { bus } from '../events';
 import { getSettings } from '../settings';
 import { organize } from '../studio/service';
 import { fetchImage, writeArtwork, writeTags } from '../tagger';
-import { albumReleaseId } from './lookup';
+import { albumIdentity } from './lookup';
 import { reindexFiles, setActivity } from './scanner';
 
 let running = false;
@@ -49,18 +49,24 @@ export function autoTagFiles(ids: string[], opts: { organize: boolean }) {
 						continue;
 					}
 					const p = applyEnrichment(r, e);
+					const identity = albumIdentity({
+						albumArtist: p.albumArtist,
+						artist: p.artists?.[0] ?? p.artist ?? r.artist,
+						album: p.album,
+						releaseId: e.releaseId
+					});
 					await writeTags(r.path, {
 						title: p.title,
 						artists: p.artists?.length ? p.artists : undefined,
-						album: p.album,
-						albumArtist: p.albumArtist,
+						album: identity.album,
+						albumArtist: identity.albumArtist,
 						year: p.year,
 						trackNumber: p.trackNumber,
 						trackTotal: e.trackTotal,
 						discNumber: p.discNumber,
 						genre: splitGenres(p.genre),
 						mbRecordingId: e.recordingId,
-						mbReleaseId: albumReleaseId(p.albumArtist, p.album, e.releaseId),
+						mbReleaseId: identity.releaseId,
 						mbArtistId: e.artistId
 					});
 					// The user asked for the real album cover: replace whatever is embedded.

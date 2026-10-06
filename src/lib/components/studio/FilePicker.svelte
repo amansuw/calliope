@@ -9,6 +9,7 @@
 
 	let q = $state('');
 	let issues = $state<Issue[]>([]);
+	let mp3Only = $state(false);
 	let picked = $state(new Set<string>());
 
 	$effect(() => {
@@ -18,7 +19,7 @@
 	const rows = $derived(
 		filterRows(
 			library.rows,
-			{ q, formats: [], quality: 'all', issues, artist: null, album: null },
+			{ q, formats: mp3Only ? ['mp3'] : [], quality: 'all', issues, artist: null, album: null },
 			haystack
 		).slice(0, 500)
 	);
@@ -58,6 +59,13 @@
 				onclick={() => toggleIssue(key as Issue)}>{label}</button
 			>
 		{/each}
+		<span class="mr-1 ml-2 self-center text-ink-400">Format:</span>
+		<button
+			class="rounded-full border px-2.5 py-0.5 transition {mp3Only
+				? 'border-violet/50 bg-violet/15 text-violet-glow'
+				: 'border-white/8 text-ink-300'}"
+			onclick={() => (mp3Only = !mp3Only)}>MP3</button
+		>
 	</div>
 	<div class="flex-1 overflow-y-auto">
 		{#each rows as r (r.id)}

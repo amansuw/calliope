@@ -121,6 +121,8 @@ export const tracks = sqliteTable(
 		retryAt: timestamp('retry_at'),
 		/** Bypass duplicate checks (user explicitly re-requested it) */
 		force: integer('force', { mode: 'boolean' }).notNull().default(false),
+		/** Library file this download replaces with a lossless copy, once it is filed */
+		upgradeOf: text('upgrade_of'),
 		error: text('error'),
 		skipReason: text('skip_reason'),
 		/** Tail of the worker log, kept for failed/finished items */

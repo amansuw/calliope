@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { beforeNavigate } from '$app/navigation';
 	import {
+		CircleArrowUp,
 		FileAudio,
 		FolderTree,
 		Image,
@@ -25,6 +26,7 @@
 	import MatchTool from '$lib/components/studio/tools/MatchTool.svelte';
 	import OrganizeTool from '$lib/components/studio/tools/OrganizeTool.svelte';
 	import ReplaceTool from '$lib/components/studio/tools/ReplaceTool.svelte';
+	import UpgradeTool from '$lib/components/studio/tools/UpgradeTool.svelte';
 
 	let { data } = $props();
 	let picker = $state(false);
@@ -35,7 +37,8 @@
 		{ key: 'replace', label: 'Replace & case', icon: Replace },
 		{ key: 'filename', label: 'From filename', icon: FileAudio },
 		{ key: 'art', label: 'Art & lyrics', icon: Image },
-		{ key: 'organize', label: 'Organize', icon: FolderTree }
+		{ key: 'organize', label: 'Organize', icon: FolderTree },
+		{ key: 'upgrade', label: 'Upgrade to FLAC', icon: CircleArrowUp }
 	] as const;
 	let tool = $state<(typeof TOOLS)[number]['key']>('match');
 
@@ -168,6 +171,7 @@
 				{:else if tool === 'replace'}<ReplaceTool />
 				{:else if tool === 'filename'}<FilenameTool />
 				{:else if tool === 'art'}<ArtLyricsTool />
+				{:else if tool === 'upgrade'}<UpgradeTool soulseekReady={data.soulseekReady} />
 				{:else}<OrganizeTool template={data.template} />{/if}
 			</div>
 		</aside>

@@ -220,4 +220,73 @@ describe.skipIf(!hasFfmpeg)('soulseek downloads in the pipeline', () => {
 		const { error } = await run('ytmusic');
 		expect(error?.message).toBe('yt-dlp exploded');
 	});
+
+	/** A lossy library file as a video rip leaves it, queued for a lossless upgrade. */
+	const upgrade = async (name: string) => {
+		const { eq } = await import('drizzle-orm');
+		const { db, schema } = await import('../db');
+		const { reindexFiles } = await import('../library/scanner');
+		const { queueUpgrades, upgradedFiles } = await import('../studio/upgrade');
+		const { getTrack } = await import('./tracks');
+		const { processTrack } = await import('./worker');
+		const mp3 = path.join(tmp, 'music', 'Gorillaz', 'My Mix', `${name}.mp3`);
+		fs.mkdirSync(path.dirname(mp3), { recursive: true });
+		execFileSync('ffmpeg', [
+			...['-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1'],
+			...['-metadata', 'title=Gorillaz - Silent Running (Official Video)'],
+			...['-metadata', 'artist=Gorillaz', '-metadata', 'album=My Mix'],
+			mp3
+		]);
+		await reindexFiles([mp3]);
+		const row = () =>
+			db.select().from(schema.libraryFiles).where(eq(schema.libraryFiles.path, mp3)).get();
+		const old = row()!;
+		const { queued, skipped } = await queueUpgrades([old.id]);
+		expect(skipped).toEqual([]);
+		// asking again while it waits queues nothing
+		expect((await queueUpgrades([old.id])).skipped).toEqual([
+			{ id: old.id, reason: 'Already queued' }
+		]);
+		const log: string[] = [];
+		const error = await processTrack(getTrack(queued[0].track.id)!, {
+			signal: new AbortController().signal,
+			log: (l) => log.push(l),
+			stage: () => {},
+			progress: () => {}
+		}).then(
+			() => null,
+			(err: Error) => err
+		);
+		const track = getTrack(queued[0].track.id)!;
+		const fresh = upgradedFiles([track.id])[track.id];
+		return { mp3, old, stillIndexed: !!row(), track, fresh, error, log: log.join('\n') };
+	};
+
+	it('upgrade: replaces a lossy library file with the lossless copy, keeping its tags', async () => {
+		Object.assign(net, { hits: [peerHit], youtube: 0, youtubeFails: false, searches: [] });
+		const { mp3, old, stillIndexed, track, fresh, error } = await upgrade('upgrade me');
+		expect(error).toBeNull();
+		expect(old.lossless).toBe(false);
+		// searched by the song, not by the video title
+		expect(net.searches[0]).toBe('gorillaz silent running');
+		expect(net.youtube).toBe(0);
+		expect(track).toMatchObject({ album: 'My Mix', artist: 'Gorillaz', trackNumber: 4 });
+		expect(track.filePath).toMatch(/Gorillaz[\\/]My Mix[\\/].*\.flac$/);
+		expect(fs.existsSync(track.filePath!)).toBe(true);
+		// the old copy left the library for quarantine, and the new one is indexed in its place
+		expect(fs.existsSync(mp3)).toBe(false);
+		expect(stillIndexed).toBe(false);
+		expect(fresh).toBeTruthy();
+		const { listQuarantine } = await import('../library/duplicates');
+		expect(listQuarantine().some((q) => q.from === mp3)).toBe(true);
+	});
+
+	it('upgrade: leaves the file alone when there is no lossless copy', async () => {
+		Object.assign(net, { hits: [otherSong], youtube: 0, youtubeFails: false });
+		const { mp3, stillIndexed, error } = await upgrade('keep me');
+		expect(error?.message).toBe('No lossless copy found on Soulseek');
+		expect(net.youtube).toBe(0);
+		expect(fs.existsSync(mp3)).toBe(true);
+		expect(stillIndexed).toBe(true);
+	});
 });

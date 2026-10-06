@@ -16,6 +16,7 @@ import {
 } from '../enrich';
 import type { Track } from '../db/schema';
 import { fetchLyrics } from '../integrations/lyrics';
+import { quarantineFiles } from '../library/duplicates';
 import { albumIdentity, findInLibrary } from '../library/lookup';
 import { getSettings } from '../settings';
 import { soulseek } from '../soulseek';
@@ -33,7 +34,7 @@ import {
 import { acoustidReady, identifyFile } from '../studio/acoustid';
 import { spotifyTrack } from '../sources/spotify';
 import { ytVideoInfo } from '../sources/youtube';
-import { fetchImage, readMetadata, writeArtwork, writeTags } from '../tagger';
+import { fetchImage, readCoverArt, readMetadata, writeArtwork, writeTags } from '../tagger';
 import { cleanupStaging, downloadAudio, type DownloadProgress } from './download';
 import { renderTemplate } from './template';
 import { patchTrack } from './tracks';
@@ -92,7 +93,8 @@ const albumSources = new Map<string, { user: string; dir: string }>();
  */
 async function soulseekTarget(t: Track): Promise<SlskTarget> {
 	const base: SlskTarget = {
-		title: plainTitle(t.title!),
+		// A library file ripped from a video is often titled "Artist - Song"
+		title: plainTitle(t.upgradeOf ? withoutArtist(t.title!, t.artist!) : t.title!),
 		artist: t.artist!,
 		artists: t.artists ?? undefined,
 		durationMs: t.durationMs,
@@ -116,6 +118,11 @@ async function soulseekTarget(t: Track): Promise<SlskTarget> {
 		trackNumber: mb.trackNumber ?? t.trackNumber
 	};
 }
+
+const withoutArtist = (title: string, artist: string) => {
+	const m = title.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+	return m && normalize(m[1]) === normalize(artist) ? m[2] : title;
+};
 
 /** The audio itself says which recording this is. Null when it agrees or cannot tell. */
 async function fingerprintProblem(file: string, target: SlskTarget): Promise<string | null> {
@@ -300,11 +307,19 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 		}
 	}
 
+	// A lossless upgrade replaces a file already in the library
+	const old = t.upgradeOf
+		? db.select().from(schema.libraryFiles).where(eq(schema.libraryFiles.id, t.upgradeOf)).get()
+		: undefined;
+	if (t.upgradeOf && !old) throw new SkipError('The file to upgrade is no longer in the library');
+	if (old?.lossless) throw new SkipError(`Already lossless: ${old.path}`);
+
 	// 3 + 4. Find and download the audio -------------------------------------------------
 	const preset = (
 		t.formatPreset in FORMAT_PRESETS ? t.formatPreset : settings.pipeline.formatPreset
 	) as FormatPresetId;
-	const fromSoulseek = t.provider === 'soulseek';
+	// A file picked by hand from search results
+	const fromSoulseek = t.provider === 'soulseek' && !old;
 	// The file came from a peer (picked by hand or found automatically), not from YouTube
 	let viaSoulseek = fromSoulseek;
 
@@ -364,6 +379,14 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			if (!ref) throw new PermanentError('Missing Soulseek file reference');
 			ctx.stage('downloading');
 			file = await downloadSoulseek(t.id, ref, ctx);
+		} else if (old) {
+			// Only a real lossless file will do: there is no other source to fall back on
+			const slsk = soulseek.status();
+			if (!slsk.enabled || !slsk.configured)
+				throw new PermanentError('Soulseek is not set up — see Settings › Integrations');
+			const lossless = await fetchLossless(t, ctx);
+			if (!lossless) throw new PermanentError('No lossless copy found on Soulseek');
+			file = useLossless(lossless);
 		} else {
 			// The preferred source goes first and the other one is the fallback
 			const slsk = soulseek.status();
@@ -443,7 +466,7 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 		// the video, so MusicBrainz decides the album for those.
 		let mbMatch: Enrichment | null = null;
 		if (settings.pipeline.enrichMusicBrainz) {
-			const keepAlbum = (t.provider === 'spotify' || fromSoulseek) && !!t.album;
+			const keepAlbum = (t.provider === 'spotify' || fromSoulseek || !!old) && !!t.album;
 			mbMatch = await enrich(
 				{
 					artist: t.artist,
@@ -466,9 +489,15 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			lyrics = await fetchLyrics({ artist: t.artist, title: t.title, album: t.album, durationSec });
 			ctx.log(lyrics ? `Lyrics found (${lyrics.synced ? 'synced' : 'plain'})` : 'No lyrics found');
 		}
-		const lyricText = settings.lyrics.preferSynced
+		let lyricText = settings.lyrics.preferSynced
 			? (lyrics?.synced ?? lyrics?.plain)
 			: (lyrics?.plain ?? lyrics?.synced);
+		// An upgrade keeps the lyrics and cover of the file it replaces when it brings none
+		if (!lyricText && old?.hasLyrics) {
+			const tags = (await readMetadata(old.path).catch(() => null))?.tags as
+				{ lyrics?: { text?: string }[] } | undefined;
+			lyricText = tags?.lyrics?.find((l) => l.text)?.text;
+		}
 
 		// File the track with the album the library already has: one album artist, one release ID
 		const identity = albumIdentity({
@@ -501,7 +530,14 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 
 		// Art already embedded in a shared file is kept; a cover is only fetched when it has none.
 		let hasArtwork = embeddedArt;
-		if (t.artworkUrl && !embeddedArt) {
+		if (!embeddedArt && old?.hasArtwork) {
+			const art = await readCoverArt(old.path).catch(() => undefined);
+			if (art) {
+				await writeArtwork(file, art, art[0] === 0x89 ? 'image/png' : 'image/jpeg');
+				hasArtwork = true;
+			}
+		}
+		if (t.artworkUrl && !hasArtwork) {
 			const img = await fetchImage(t.artworkUrl);
 			if (img) {
 				await writeArtwork(file, img.data, img.mime);
@@ -572,6 +608,16 @@ export async function processTrack(initial: Track, ctx: WorkerContext): Promise<
 			})
 			.onConflictDoNothing()
 			.run();
+
+		if (old) {
+			// The new file is in place either way: a stuck old copy must not fail the upgrade
+			try {
+				quarantineFiles([old.id], dest);
+				ctx.log(`Replaced ${old.path} (moved to quarantine)`);
+			} catch (err) {
+				ctx.log(`Could not move the old file to quarantine: ${(err as Error).message}`);
+			}
+		}
 	} finally {
 		cleanupStaging(t.id);
 	}

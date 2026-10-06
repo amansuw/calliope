@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { applyCoverArt, readMetadata, writeTagsBatch } from 'taglib-wasm/simple';
+import { applyCoverArt, readCoverArt, readMetadata, writeTagsBatch } from 'taglib-wasm/simple';
 
 export interface TagWrite {
 	title?: string | null;
@@ -77,4 +77,4 @@ export async function fetchImage(url: string): Promise<{ data: Uint8Array; mime:
 	}
 }
 
-export { readMetadata };
+export { readCoverArt, readMetadata };

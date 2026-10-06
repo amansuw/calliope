@@ -29,6 +29,8 @@ export interface StudioFile {
 	path: string;
 	relPath: string;
 	format: string | null;
+	lossless: boolean | null;
+	bitrate: number | null;
 	durationMs: number | null;
 	hasArtwork: boolean;
 	hasLyrics: boolean;
@@ -72,6 +74,8 @@ export async function loadFiles(ids: string[]): Promise<StudioFile[]> {
 			path: r.path,
 			relPath: r.relPath,
 			format: r.format,
+			lossless: r.lossless,
+			bitrate: r.bitrate,
 			durationMs: r.durationMs,
 			hasArtwork: r.hasArtwork,
 			hasLyrics: r.hasLyrics,

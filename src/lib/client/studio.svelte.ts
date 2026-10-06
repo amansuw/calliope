@@ -1,5 +1,7 @@
+import type { TrackDTO } from '$lib/types';
 import { api } from './api';
 import { library } from './library.svelte';
+import { live } from './live.svelte';
 import { toasts } from './toasts.svelte';
 
 export const FIELDS = [
@@ -22,11 +24,23 @@ export interface StudioFile {
 	path: string;
 	relPath: string;
 	format: string | null;
+	lossless: boolean | null;
+	bitrate: number | null;
 	durationMs: number | null;
 	hasArtwork: boolean;
 	hasLyrics: boolean;
 	mbRecordingId: string | null;
 	tags: Record<Field, Value>;
+}
+
+/** A search for a lossless copy of one file, running in the pipeline */
+export interface UpgradeJob {
+	/** The file in the working set: the lossy one, then its replacement */
+	fileId: string;
+	trackId: string;
+	label: string;
+	/** The lossless file has taken the old one's place in the working set */
+	swapped: boolean;
 }
 
 export interface MbStaged {
@@ -69,6 +83,7 @@ class Studio {
 	organizeOnSave = $state(readPref('studio-organize', true));
 	/** Bumped after saves so artwork thumbnails refetch */
 	artVersion = $state(0);
+	upgrades = $state<UpgradeJob[]>([]);
 
 	dirtyIds = $derived([
 		...new Set([
@@ -213,6 +228,61 @@ class Studio {
 		}
 	}
 
+	/** Queue a Soulseek search for a lossless copy of each file. */
+	async upgrade(files: StudioFile[]) {
+		const res = await api.post<{
+			queued: { fileId: string; track: TrackDTO }[];
+			skipped: { id: string; reason: string }[];
+		}>('/api/studio/upgrade', { ids: files.map((f) => f.id) });
+		live.seedTracks(res.queued.map((q) => q.track));
+		const label = (id: string) => {
+			const f = files.find((x) => x.id === id);
+			return f ? [f.tags.artist, f.tags.title].filter(Boolean).join(' — ') || f.relPath : id;
+		};
+		this.upgrades = [
+			...res.queued.map((q) => ({
+				fileId: q.fileId,
+				trackId: q.track.id,
+				label: label(q.fileId),
+				swapped: false
+			})),
+			...this.upgrades
+		];
+		return res;
+	}
+
+	/** Put the lossless files that finished upgrades produced in place of the ones they replaced. */
+	async adoptUpgrades() {
+		const done = this.upgrades.filter(
+			(j) => !j.swapped && live.tracks.get(j.trackId)?.status === 'done'
+		);
+		if (!done.length) return;
+		for (const j of done) j.swapped = true;
+		const newIds = await api.get<Record<string, string>>(
+			`/api/studio/upgrade?tracks=${done.map((j) => j.trackId).join(',')}`
+		);
+		const ids = Object.values(newIds);
+		const loaded = ids.length ? await api.post<StudioFile[]>('/api/studio/files', { ids }) : [];
+		const byId = new Map(loaded.map((f) => [f.id, f]));
+		for (const j of done) {
+			const fresh = byId.get(newIds[j.trackId]);
+			if (!fresh) continue;
+			const old = j.fileId;
+			this.files = this.files.map((f) => (f.id === old ? fresh : f));
+			this.selected = this.selected.map((id) => (id === old ? fresh.id : id));
+			if (this.focusId === old) this.focusId = fresh.id;
+			// Staged changes follow the file
+			for (const staged of [this.edits, this.artwork, this.mb] as Record<string, unknown>[]) {
+				if (!(old in staged)) continue;
+				staged[fresh.id] = staged[old];
+				delete staged[old];
+			}
+			j.fileId = fresh.id;
+		}
+		this.artVersion++;
+		void library.load(true);
+	}
+
 	async reload(ids: string[]) {
 		const reloaded = await api.post<StudioFile[]>('/api/studio/files', { ids });
 		const byId = new Map(reloaded.map((f) => [f.id, f]));
@@ -224,4 +294,5 @@ export const studio = new Studio();
 
 $effect.root(() => {
 	$effect(() => writePref('studio-organize', studio.organizeOnSave));
+	$effect(() => void studio.adoptUpgrades());
 });

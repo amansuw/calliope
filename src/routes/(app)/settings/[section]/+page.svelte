@@ -131,6 +131,22 @@
 		}
 	}
 
+	let navidromeScan = $state<'quick' | 'full' | null>(null);
+	async function rescanNavidrome(full: boolean) {
+		if (dirty) await save();
+		navidromeScan = full ? 'full' : 'quick';
+		try {
+			await api.post('/api/navidrome/scan', { full });
+			toasts.push({
+				level: 'info',
+				title: full ? 'Navidrome is rescanning every file' : 'Navidrome is rescanning',
+				message: 'You will be told when it finishes.'
+			});
+		} finally {
+			navidromeScan = null;
+		}
+	}
+
 	// --- account ------------------------------------------------------------------------
 	let pw = $state({ current: '', next: '', confirm: '' });
 	async function changePassword() {
@@ -661,9 +677,25 @@
 
 			<Section
 				title="Navidrome"
-				description="Trigger a library rescan shortly after downloads finish."
+				description="Trigger a library rescan shortly after downloads finish and after files are retagged, moved or removed."
 			>
 				{#snippet actions()}
+					<button
+						class="btn btn-sm"
+						onclick={() => rescanNavidrome(false)}
+						disabled={!!navidromeScan || !draft.navidrome.url}
+						title="Pick up new and changed files"
+					>
+						{#if navidromeScan === 'quick'}<LoaderCircle class="h-3 w-3 animate-spin" />{/if} Rescan
+					</button>
+					<button
+						class="btn btn-sm btn-ghost"
+						onclick={() => rescanNavidrome(true)}
+						disabled={!!navidromeScan || !draft.navidrome.url}
+						title="Have Navidrome re-read every file"
+					>
+						{#if navidromeScan === 'full'}<LoaderCircle class="h-3 w-3 animate-spin" />{/if} Full rescan
+					</button>
 					<button
 						class="btn btn-sm"
 						onclick={() => test('navidrome')}

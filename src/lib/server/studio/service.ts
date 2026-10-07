@@ -4,6 +4,7 @@ import { inArray } from 'drizzle-orm';
 import { readMetadata } from 'taglib-wasm/simple';
 import { db, schema } from '../db';
 import { fetchLyrics } from '../integrations/lyrics';
+import { scheduleNavidromeScan } from '../integrations/navidrome';
 import { reindexFiles } from '../library/scanner';
 import { moveFile, samePath } from '../pipeline/worker';
 import { renderTemplate } from '../pipeline/template';
@@ -185,6 +186,7 @@ export async function saveChanges(changes: SaveChange[], opts: { organize?: bool
 		}
 	}
 	await reindexFiles(written);
+	if (written.length) scheduleNavidromeScan();
 	// Tags drive the folder layout: re-file saved files so album/artist changes move them too.
 	let moved = 0;
 	if (opts.organize && savedIds.length) {
@@ -279,6 +281,7 @@ export async function organize(ids: string[], template: string, dryRun: boolean)
 		pruneEmptyDirs(path.dirname(p.from), root);
 		moved++;
 	}
+	if (moved) scheduleNavidromeScan();
 	return { plan, moved };
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import {
 		ArrowDown,
 		ArrowUp,
@@ -24,6 +25,7 @@
 	import { artUrl, library, toPlayerTrack } from '$lib/client/library.svelte';
 	import { live } from '$lib/client/live.svelte';
 	import { player } from '$lib/client/player.svelte';
+	import { toasts } from '$lib/client/toasts.svelte';
 	import type { LibraryRow } from '$lib/library-columns';
 	import {
 		filterRows,
@@ -185,6 +187,21 @@
 		await api.post('/api/library/scan', { full });
 	}
 
+	let askingNavidrome = $state(false);
+	async function rescanNavidrome() {
+		askingNavidrome = true;
+		try {
+			await api.post('/api/navidrome/scan');
+			toasts.push({
+				level: 'info',
+				title: 'Navidrome is rescanning',
+				message: 'You will be told when it finishes.'
+			});
+		} finally {
+			askingNavidrome = false;
+		}
+	}
+
 	function formatLabel(r: LibraryRow) {
 		const f = (r.format ?? '?').toUpperCase();
 		if (r.lossless)
@@ -242,6 +259,16 @@
 			disabled={scanning}
 			title="Re-read every file">Full rescan</button
 		>
+		{#if page.data.navidrome}
+			<button
+				class="btn btn-ghost"
+				onclick={rescanNavidrome}
+				disabled={askingNavidrome}
+				title="Ask Navidrome to pick up new and changed files"
+			>
+				{#if askingNavidrome}<LoaderCircle class="h-3.5 w-3.5 animate-spin" />{/if} Rescan Navidrome
+			</button>
+		{/if}
 	</div>
 </header>
 

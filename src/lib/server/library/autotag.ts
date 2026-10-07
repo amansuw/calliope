@@ -6,6 +6,7 @@ import { inArray } from 'drizzle-orm';
 import { db, schema } from '../db';
 import { applyEnrichment, enrich, splitGenres } from '../enrich';
 import { bus } from '../events';
+import { scheduleNavidromeScan } from '../integrations/navidrome';
 import { getSettings } from '../settings';
 import { organize } from '../studio/service';
 import { fetchImage, writeArtwork, writeTags } from '../tagger';
@@ -90,6 +91,7 @@ export function autoTagFiles(ids: string[], opts: { organize: boolean }) {
 				}
 			}
 			await reindexFiles(written);
+			if (written.length) scheduleNavidromeScan();
 			let moved = 0;
 			if (opts.organize && matched.length) {
 				moved = (await organize(matched, getSettings().pipeline.pathTemplate, false)).moved;

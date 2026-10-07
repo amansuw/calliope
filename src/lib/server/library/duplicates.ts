@@ -14,6 +14,7 @@ import { bin, checkBinaries } from '../binaries';
 import { db, schema } from '../db';
 import type { LibraryFile } from '../db/schema';
 import { bus } from '../events';
+import { scheduleNavidromeScan } from '../integrations/navidrome';
 import { moveFile } from '../pipeline/worker';
 import { runOk } from '../proc';
 import { getSettings } from '../settings';
@@ -368,6 +369,7 @@ export function quarantineFiles(ids: string[], redirectTo?: string) {
 				.where(eq(schema.tracks.filePath, r.path))
 				.run();
 	}
+	if (rows.length) scheduleNavidromeScan();
 	return rows.length;
 }
 
@@ -471,6 +473,7 @@ export async function restoreQuarantined(opId: number) {
 	moveFile(op.toPath, dest);
 	db.insert(schema.fileOps).values({ kind: 'restore', fromPath: op.toPath, toPath: dest }).run();
 	await reindexFiles([dest]);
+	scheduleNavidromeScan();
 	return dest;
 }
 

@@ -3,7 +3,7 @@
  *
  * Three engines feed one union-find:
  *   exact     same audio-payload hash (identical audio, tags may differ)
- *   metadata  same normalized artist+title key and similar durations
+ *   metadata  same normalized artist+title key, whatever the length
  *   acoustic  Chromaprint fingerprints that align (same recording, any codec/bitrate)
  */
 import fs from 'node:fs';
@@ -158,8 +158,8 @@ export const groupKey = (ids: string[]) => [...ids].sort().join(',');
 
 /**
  * Copies of one track rarely have the same length: a video upload adds an intro or outro, a rip
- * trailing silence. Lengths this far apart can still be the same track; beyond it, it is another
- * cut (extended, live) and stays apart.
+ * trailing silence. Files this far apart in length are compared by sound; beyond it only files
+ * that already share an artist and title are.
  */
 const DURATION_WINDOW_MS = 30_000;
 
@@ -185,29 +185,20 @@ export function findDuplicates(opts: { acousticThreshold?: number } = {}): DupGr
 	for (const ids of byHash.values())
 		for (let i = 1; i < ids.length; i++) link(ids[0], ids[i], 'exact');
 
-	// metadata — same key and similar length
+	// metadata — the same artist and title is worth a look even when the lengths differ: a
+	// truncated or padded download, or another cut the user can then dismiss
 	const byKey = new Map<string, LibraryFile[]>();
 	for (const f of files)
 		if (f.matchKey) (byKey.get(f.matchKey) ?? byKey.set(f.matchKey, []).get(f.matchKey)!).push(f);
-	for (const group of byKey.values()) {
-		for (let i = 0; i < group.length; i++)
-			for (let j = i + 1; j < group.length; j++) {
-				const a = group[i];
-				const b = group[j];
-				if (
-					!a.durationMs ||
-					!b.durationMs ||
-					Math.abs(a.durationMs - b.durationMs) <= DURATION_WINDOW_MS
-				)
-					link(a.id, b.id, 'metadata');
-			}
-	}
+	for (const group of byKey.values())
+		for (let i = 1; i < group.length; i++) link(group[0].id, group[i].id, 'metadata');
 
 	// acoustic — compare fingerprints of tracks with similar durations only
 	const printed = files
 		.filter((f) => f.fingerprintRaw && f.durationMs)
 		.map((f) => ({ id: f.id, dur: f.durationMs!, fp: toPrint(decodeRaw(f.fingerprintRaw!)) }))
 		.sort((a, b) => a.dur - b.dur);
+	const printOf = new Map(printed.map((p) => [p.id, p]));
 	for (let i = 0; i < printed.length; i++) {
 		for (
 			let j = i + 1;
@@ -218,6 +209,16 @@ export function findDuplicates(opts: { acousticThreshold?: number } = {}): DupGr
 			if (sim >= threshold) link(printed[i].id, printed[j].id, 'acoustic', sim);
 		}
 	}
+	// …and of same-named tracks further apart, to say whether they are one recording
+	for (const group of byKey.values())
+		for (let i = 0; i < group.length; i++)
+			for (let j = i + 1; j < group.length; j++) {
+				const a = printOf.get(group[i].id);
+				const b = printOf.get(group[j].id);
+				if (!a || !b || Math.abs(a.dur - b.dur) <= DURATION_WINDOW_MS) continue;
+				const sim = similarity(a.fp, b.fp);
+				if (sim >= threshold) link(a.id, b.id, 'acoustic', sim);
+			}
 
 	// assemble
 	const members = new Map<string, string[]>();

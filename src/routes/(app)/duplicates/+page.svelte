@@ -165,8 +165,14 @@
 		groups = groups.filter((x) => x.key !== g.key);
 	}
 
+	/** Identical audio has one length: a group that also holds a longer or shorter file needs a look. */
+	function oneLength(g: Group) {
+		const ms = g.files.map((f) => f.durationMs ?? 0);
+		return Math.max(...ms) - Math.min(...ms) <= 1000;
+	}
+
 	async function resolveAllExact() {
-		const exact = groups.filter((g) => g.reasons.includes('exact'));
+		const exact = groups.filter((g) => g.reasons.includes('exact') && oneLength(g));
 		if (
 			!confirm(
 				`Resolve ${exact.length} exact-duplicate groups? Each keeps its best copy (tags merged) and moves the rest to quarantine, where they can be restored.`

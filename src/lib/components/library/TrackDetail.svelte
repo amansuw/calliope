@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { ExternalLink, ListEnd, Play, Sparkles, WandSparkles, X } from '@lucide/svelte';
+	import { ExternalLink, ListEnd, Play, Sparkles, Trash2, WandSparkles, X } from '@lucide/svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { api } from '$lib/client/api';
 	import { ago, bytes, duration } from '$lib/client/format';
+	import { library } from '$lib/client/library.svelte';
 	import { player } from '$lib/client/player.svelte';
+	import { toasts } from '$lib/client/toasts.svelte';
 	import { PROVIDER_LABELS } from '$lib/status';
 	import Artwork from '../Artwork.svelte';
 
@@ -59,10 +61,28 @@
 	}
 
 	let d = $state<Detail | null>(null);
+	let confirming = $state(false);
+	let deleting = $state(false);
 	$effect(() => {
 		d = null;
+		confirming = false;
 		api.get<Detail>(`/api/library/${id}`).then((r) => (d = r));
 	});
+
+	async function remove() {
+		if (!d) return;
+		const { id, title } = d;
+		deleting = true;
+		try {
+			await api.del(`/api/library/${id}`);
+			player.remove(id);
+			library.remove(id);
+			toasts.push({ level: 'success', title: 'Track deleted', message: title ?? undefined });
+			onclose();
+		} finally {
+			deleting = false;
+		}
+	}
 
 	const asTrack = (x: Detail) => ({
 		id: x.id,
@@ -161,6 +181,31 @@
 					{/if}
 				</div>
 			{/if}
+
+			<div class="mt-5">
+				{#if confirming}
+					<div
+						class="rounded-lg border border-bad/30 bg-bad/5 p-3"
+						{@attach (el) => el.scrollIntoView({ block: 'nearest' })}
+					>
+						<p class="text-xs text-ink-200">Delete this file from disk? This cannot be undone.</p>
+						<div class="mt-2.5 flex justify-end gap-2">
+							<button
+								class="btn btn-sm btn-ghost"
+								disabled={deleting}
+								onclick={() => (confirming = false)}>Cancel</button
+							>
+							<button class="btn btn-sm btn-danger" disabled={deleting} onclick={remove}
+								><Trash2 class="h-3.5 w-3.5" /> {deleting ? 'Deleting…' : 'Delete file'}</button
+							>
+						</div>
+					</div>
+				{:else}
+					<button class="btn btn-sm btn-danger w-full" onclick={() => (confirming = true)}
+						><Trash2 class="h-3.5 w-3.5" /> Delete track</button
+					>
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="space-y-3 p-4">

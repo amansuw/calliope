@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 import { db, schema } from '$lib/server/db';
 import { handler } from '$lib/server/http';
+import { deleteLibraryFile } from '$lib/server/studio/service';
 
 export const GET: RequestHandler = handler(({ params }) => {
 	const file = db
@@ -32,4 +33,10 @@ export const GET: RequestHandler = handler(({ params }) => {
 				}
 			: null
 	});
+});
+
+/** Permanent deletion; the UI asks for confirmation before calling this. */
+export const DELETE: RequestHandler = handler(({ params }) => {
+	if (!deleteLibraryFile(params.id)) error(404, 'Not found');
+	return json({ ok: true });
 });

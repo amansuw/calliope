@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { readMetadata } from 'taglib-wasm/simple';
 import { db, schema } from '../db';
 import { fetchLyrics } from '../integrations/lyrics';
 import { scheduleNavidromeScan } from '../integrations/navidrome';
-import { reindexFiles } from '../library/scanner';
+import { bus } from '../events';
+import { libraryStatus, reindexFiles } from '../library/scanner';
 import { moveFile, samePath } from '../pipeline/worker';
 import { renderTemplate } from '../pipeline/template';
 import { getSettings } from '../settings';
@@ -283,6 +284,29 @@ export async function organize(ids: string[], template: string, dryRun: boolean)
 	}
 	if (moved) scheduleNavidromeScan();
 	return { plan, moved };
+}
+
+/** Permanently delete a library file from disk. Only ever called from an explicit user confirmation. */
+export function deleteLibraryFile(id: string) {
+	const file = db.select().from(schema.libraryFiles).where(eq(schema.libraryFiles.id, id)).get();
+	if (!file) return false;
+	const root = path.resolve(getSettings().paths.libraryDir);
+	// Never delete anything outside the library folder
+	if (!path.resolve(file.path).startsWith(root + path.sep))
+		throw new Error('This file is outside the library folder');
+	fs.rmSync(file.path, { force: true });
+	db.insert(schema.fileOps)
+		.values({
+			kind: 'delete',
+			fromPath: file.path,
+			detail: { id: file.id, title: file.title, artist: file.artist, size: file.size }
+		})
+		.run();
+	db.delete(schema.libraryFiles).where(eq(schema.libraryFiles.id, file.id)).run();
+	pruneEmptyDirs(path.dirname(file.path), root);
+	bus.emit('library', libraryStatus());
+	scheduleNavidromeScan();
+	return true;
 }
 
 function pruneEmptyDirs(dir: string, root: string) {

@@ -25,6 +25,11 @@ class LibraryStore {
 		return this.pending;
 	}
 
+	/** Forget a file that was just deleted, without waiting for a reload. */
+	remove(id: string) {
+		this.rows = this.rows.filter((r) => r.id !== id);
+	}
+
 	byId(id: string) {
 		return this.rows.find((r) => r.id === id);
 	}

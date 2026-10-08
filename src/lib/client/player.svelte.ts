@@ -132,6 +132,26 @@ class Player {
 		this.queue = [...this.queue, ...tracks];
 	}
 
+	/** Drop a track whose file is gone from the queue, moving on if it was the one loaded. */
+	remove(id: string) {
+		if (!this.queue.some((t) => t.id === id)) return;
+		const wasCurrent = this.current?.id === id;
+		const wasPlaying = this.playing;
+		const earlier = this.queue.slice(0, this.index).filter((t) => t.id === id).length;
+		const queue = this.queue.filter((t) => t.id !== id);
+		const index = this.index - earlier;
+		if (wasCurrent && index >= queue.length) return this.clear();
+		this.queue = queue;
+		this.index = index;
+		this.preloadedFor = null;
+		if (!wasCurrent) return;
+		this.startAt(index);
+		if (!wasPlaying) {
+			this.deck.el.pause();
+			this.playing = false;
+		}
+	}
+
 	toggle() {
 		if (!this.current) return;
 		if (this.deck.el.paused) {

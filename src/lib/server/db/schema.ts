@@ -206,7 +206,7 @@ export const duplicateDismissals = sqliteTable('duplicate_dismissals', {
 /** Every file operation that changes the library, so moves/quarantines can be undone. */
 export const fileOps = sqliteTable('file_ops', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	kind: text('kind', { enum: ['quarantine', 'move', 'retag', 'restore'] }).notNull(),
+	kind: text('kind', { enum: ['quarantine', 'move', 'retag', 'restore', 'delete'] }).notNull(),
 	fromPath: text('from_path'),
 	toPath: text('to_path'),
 	detail: text('detail', { mode: 'json' }),
